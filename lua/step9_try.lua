@@ -51,7 +51,7 @@ end
 function macroexpand(ast, env)
     while is_macro_call(ast, env) do
         local mac = env:get(ast[1])
-        ast = mac.fn(unpack(ast:slice(2)))
+        ast = mac.fn(table.unpack(ast:slice(2)))
     end
     return ast
 end
@@ -81,9 +81,10 @@ function EVAL(ast, env)
 
     -- apply list
     ast = macroexpand(ast, env)
-    if not types._list_Q(ast) then return ast end
+    if not types._list_Q(ast) then return eval_ast(ast, env) end
 
     local a0,a1,a2,a3 = ast[1], ast[2],ast[3],ast[4]
+    if not a0 then return ast end
     local a0sym = types._symbol_Q(a0) and a0.val or ""
     if 'def!' == a0sym then
         return env:set(a1, EVAL(a2, env))
@@ -128,13 +129,13 @@ function EVAL(ast, env)
     elseif 'if' == a0sym then
         local cond = EVAL(a1, env)
         if cond == types.Nil or cond == false then
-            if a3 then ast = a3 else return types.Nil end -- TCO
+            if #ast > 3 then ast = a3 else return types.Nil end -- TCO
         else
             ast = a2 -- TCO
         end
     elseif 'fn*' == a0sym then
         return types.MalFunc:new(function(...)
-            return EVAL(a2, Env:new(env, a1, arg))
+            return EVAL(a2, Env:new(env, a1, table.pack(...)))
         end, a2, env, a1)
     else
         local args = eval_ast(ast, env)
@@ -143,7 +144,7 @@ function EVAL(ast, env)
             ast = f.ast
             env = Env:new(f.env, f.params, args) -- TCO
         else
-            return f(unpack(args))
+            return f(table.unpack(args))
         end
     end
   end
@@ -170,27 +171,33 @@ repl_env:set(types.Symbol:new('*ARGV*'), types.List:new(types.slice(arg,2)))
 
 -- core.mal: defined using mal
 rep("(def! not (fn* (a) (if a false true)))")
-rep("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))")
+rep("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))")
 rep("(defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw \"odd number of forms to cond\")) (cons 'cond (rest (rest xs)))))))")
-rep("(defmacro! or (fn* (& xs) (if (empty? xs) nil (if (= 1 (count xs)) (first xs) `(let* (or_FIXME ~(first xs)) (if or_FIXME or_FIXME (or ~@(rest xs))))))))")
+
+function print_exception(exc)
+    if exc then
+        if types._malexception_Q(exc) then
+            exc = printer._pr_str(exc.val, true)
+        end
+        print("Error: " .. exc)
+        print(debug.traceback())
+    end
+end
+
+if #arg > 0 and arg[1] == "--raw" then
+    readline.raw = true
+    table.remove(arg,1)
+end
 
 if #arg > 0 then
-    rep("(load-file \""..arg[1].."\")")
+    xpcall(function() rep("(load-file \""..arg[1].."\")") end,
+           print_exception)
     os.exit(0)
 end
 
 while true do
     line = readline.readline("user> ")
     if not line then break end
-    xpcall(function()
-        print(rep(line))
-    end, function(exc)
-        if exc then
-            if types._malexception_Q(exc) then
-                exc = printer._pr_str(exc.val, true)
-            end
-            print("Error: " .. exc)
-            print(debug.traceback())
-        end
-    end)
+    xpcall(function() print(rep(line)) end,
+           print_exception)
 end

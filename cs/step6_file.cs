@@ -141,20 +141,20 @@ namespace Mal {
             }
             repl_env.set(new MalSymbol("eval"), new MalFunc(
                         a => EVAL(a[0], repl_env)));
-            int fileIdx = 1;
+            int fileIdx = 0;
             if (args.Length > 0 && args[0] == "--raw") {
                 Mal.readline.mode = Mal.readline.Mode.Raw;
-                fileIdx = 2;
+                fileIdx = 1;
             }
             MalList _argv = new MalList();
-            for (int i=fileIdx; i < args.Length; i++) {
+            for (int i=fileIdx+1; i < args.Length; i++) {
                 _argv.conj_BANG(new MalString(args[i]));
             }
             repl_env.set(new MalSymbol("*ARGV*"), _argv);
 
             // core.mal: defined using the language itself
             RE("(def! not (fn* (a) (if a false true)))");
-            RE("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))");
+            RE("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))");
 
             if (args.Length > fileIdx) {
                 RE("(load-file \"" + args[fileIdx] + "\")");

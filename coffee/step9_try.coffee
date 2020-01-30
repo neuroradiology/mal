@@ -13,7 +13,7 @@ is_pair = (x) -> types._sequential_Q(x) && x.length > 0
 
 quasiquote = (ast) ->
   if !is_pair(ast) then [types._symbol('quote'), ast]
-  else if ast[0].name == 'unquote' then ast[1]
+  else if ast[0] != null && ast[0].name == 'unquote' then ast[1]
   else if is_pair(ast[0]) && ast[0][0].name == 'splice-unquote'
     [types._symbol('concat'), ast[0][1], quasiquote(ast[1..])]
   else
@@ -47,8 +47,9 @@ EVAL = (ast, env) ->
   if !types._list_Q ast then return eval_ast ast, env
 
   # apply list
-  ast = macroexpand ast, env 
-  if !types._list_Q ast then return ast
+  ast = macroexpand ast, env
+  if !types._list_Q ast then return eval_ast ast, env
+  if ast.length == 0 then return ast
 
   [a0, a1, a2, a3] = ast
   switch a0.name
@@ -74,7 +75,8 @@ EVAL = (ast, env) ->
       try return EVAL(a1, env)
       catch exc
         if a2 && a2[0].name == "catch*"
-          if exc instanceof Error then exc = exc.message
+          if exc.object? then exc = exc.object
+          else exc = exc.message
           return EVAL a2[2], new Env(env, [a2[1]], [exc])
         else
           throw exc
@@ -112,9 +114,8 @@ repl_env.set types._symbol('*ARGV*'), []
 
 # core.mal: defined using the language itself
 rep("(def! not (fn* (a) (if a false true)))");
-rep("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))");
+rep("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))");
 rep("(defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw \"odd number of forms to cond\")) (cons 'cond (rest (rest xs)))))))")
-rep("(defmacro! or (fn* (& xs) (if (empty? xs) nil (if (= 1 (count xs)) (first xs) `(let* (or_FIXME ~(first xs)) (if or_FIXME or_FIXME (or ~@(rest xs))))))))")
 
 if process? && process.argv.length > 2
   repl_env.set types._symbol('*ARGV*'), process.argv[3..]
@@ -128,7 +129,13 @@ while (line = readline.readline("user> ")) != null
     console.log rep line
   catch exc
     continue if exc instanceof reader.BlankException
-    if exc.stack then console.log exc.stack
-    else              console.log exc
+    if exc.stack? and exc.stack.length > 2000
+      console.log exc.stack.slice(0,1000) + "\n  ..." + exc.stack.slice(-1000)
+    else if exc.stack?
+      console.log exc.stack
+    else if exc.object?
+      console.log "Error:", printer._pr_str exc.object, true
+    else
+      console.log exc
 
 # vim: ts=2:sw=2

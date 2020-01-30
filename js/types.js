@@ -43,12 +43,9 @@ function _equal_Q (a, b) {
         }
         return true;
     case 'hash-map':
-        var akeys = Object.keys(a).sort(),
-            bkeys = Object.keys(b).sort();
-        if (akeys.length !== bkeys.length) { return false; }
-        for (var i=0; i<akeys.length; i++) {
-            if (akeys[i] !== bkeys[i]) { return false; }
-            if (! equal_Q(a[akeys[i]], b[bkeys[i]])) { return false; }
+        if (Object.keys(a).length !== Object.keys(b).length) { return false; }
+        for (var k in a) {
+            if (! _equal_Q(a[k], b[k])) { return false; }
         }
         return true;
     default:
@@ -79,6 +76,10 @@ function _clone (obj) {
     default:
         throw new Error("clone of non-collection: " + _obj_type(obj));
     }
+    Object.defineProperty(new_obj, "__meta__", {
+        enumerable: false,
+        writable: true
+    });
     return new_obj;
 }
 
@@ -87,6 +88,10 @@ function _clone (obj) {
 function _nil_Q(a) { return a === null ? true : false; }
 function _true_Q(a) { return a === true ? true : false; }
 function _false_Q(a) { return a === false ? true : false; }
+function _number_Q(obj) { return typeof obj === 'number'; }
+function _string_Q(obj) {
+    return typeof obj === 'string' && obj[0] !== '\u029e';
+}
 
 
 // Symbols
@@ -100,7 +105,13 @@ function _symbol_Q(obj) { return obj instanceof Symbol; }
 
 
 // Keywords
-function _keyword(name) { return "\u029e" + name; }
+function _keyword(obj) {
+    if (typeof obj === 'string' && obj[0] === '\u029e') {
+        return obj;
+    } else {
+        return "\u029e" + obj;
+    }
+}
 function _keyword_Q(obj) {
     return typeof obj === 'string' && obj[0] === '\u029e';
 }
@@ -126,6 +137,8 @@ Function.prototype.clone = function() {
     }
     return temp;
 };
+function _fn_Q(obj) { return _function_Q(obj) && !obj._ismacro_; }
+function _macro_Q(obj) { return _function_Q(obj) && !!obj._ismacro_; }
 
 
 // Lists
@@ -195,12 +208,16 @@ exports._clone = types._clone = _clone;
 exports._nil_Q = types._nil_Q = _nil_Q;
 exports._true_Q = types._true_Q = _true_Q;
 exports._false_Q = types._false_Q = _false_Q;
+exports._number_Q = types._number_Q = _number_Q;
+exports._string_Q = types._string_Q = _string_Q;
 exports._symbol = types._symbol = _symbol;
 exports._symbol_Q = types._symbol_Q = _symbol_Q;
 exports._keyword = types._keyword = _keyword;
 exports._keyword_Q = types._keyword_Q = _keyword_Q;
 exports._function = types._function = _function;
 exports._function_Q = types._function_Q = _function_Q;
+exports._fn_Q = types._fn_Q = _fn_Q;
+exports._macro_Q = types._macro_Q = _macro_Q;
 exports._list = types._list = _list;
 exports._list_Q = types._list_Q = _list_Q;
 exports._vector = types._vector = _vector;

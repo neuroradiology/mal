@@ -1,19 +1,20 @@
-
-TESTS =
-
 SOURCES_BASE = types.ps reader.ps printer.ps
-SOURCES_LISP = env.ps core.ps stepA_interop.ps
+SOURCES_LISP = env.ps core.ps stepA_mal.ps
 SOURCES = $(SOURCES_BASE) $(SOURCES_LISP)
 
-.PHONY: stats tests $(TESTS)
+all:
+	true
 
-stats: $(SOURCES)
-	@wc $^
-stats-lisp: $(SOURCES_LISP)
-	@wc $^
+dist: mal.ps mal
 
-tests: $(TESTS)
+mal.ps: $(SOURCES)
+	cat $+ | grep -v "runlibfile$$" > $@
 
-$(TESTS):
-	@echo "Running $@"; \
-	gs -q -dNODISPLAY -- $@ || exit 1; \
+mal: mal.ps
+	echo "#!/bin/sh" > $@
+	echo "\":\" pop pop pop pop %#; exec gs -d'#!'=null -d'\":\"'=null -q -dNODISPLAY -- \"\$$0\" \"\$$@\"" >> $@
+	cat $< >> $@
+	chmod +x $@
+
+clean:
+	rm -f mal.ps mal

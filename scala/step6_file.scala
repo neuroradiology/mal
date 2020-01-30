@@ -15,7 +15,7 @@ object step6_file {
       case v: MalVector  => v.map(EVAL(_, env))
       case l: MalList    => l.map(EVAL(_, env))
       case m: MalHashMap => {
-        m.map{case (k: String,v: Any) => (k, EVAL(v, env))}
+        m.map{case (k,v) => (k, EVAL(v, env))}
       }
       case _             => ast
     }
@@ -31,6 +31,9 @@ object step6_file {
 
     // apply list
     ast.asInstanceOf[MalList].value match {
+      case Nil => {
+        return ast
+      }
       case Symbol("def!") :: a1 :: a2 :: Nil => {
         return env.set(a1.asInstanceOf[Symbol], EVAL(a2, env))
       }
@@ -105,7 +108,7 @@ object step6_file {
 
     // core.mal: defined using the language itself
     REP("(def! not (fn* (a) (if a false true)))")
-    REP("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))")
+    REP("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))")
 
     if (args.length > 0) {
       REP("(load-file \"" + args(0) + "\")")

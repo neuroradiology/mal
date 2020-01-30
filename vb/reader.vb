@@ -48,7 +48,7 @@ Namespace Mal
 
         Shared Function tokenize(str As String) As List(Of String)
             Dim tokens As New List(Of String)
-            Dim pattern As String = "[\s ,]*(~@|[\[\]{}()'`~@]|""(?:[\\].|[^\\""])*""|;.*|[^\s \[\]{}()'""`~@,;]*)"
+            Dim pattern As String = "[\s ,]*(~@|[\[\]{}()'`~@]|""(?:[\\].|[^\\""])*""?|;.*|[^\s \[\]{}()'""`~@,;]*)"
             Dim regex As New Regex(pattern)
             For Each match As Match In regex.Matches(str)
                 Dim token As String = match.Groups(1).Value
@@ -64,7 +64,7 @@ Namespace Mal
 
         Shared Function read_atom(rdr As Reader) As MalVal
             Dim token As String = rdr.get_next()
-            Dim pattern As String = "(^-?[0-9]+$)|(^-?[0-9][0-9.]*$)|(^nil$)|(^true$)|(^false$)|^("".*"")$|^:(.*)|(^[^""]*$)"
+            Dim pattern As String = "(^-?[0-9]+$)|(^-?[0-9][0-9.]*$)|(^nil$)|(^true$)|(^false$)|(^""(?:[\\].|[^\\""])*""$)|^("".*)|^:(.*)|(^[^""]*$)"
             Dim regex As Regex = New Regex(pattern)
             Dim match As Match = regex.Match(token)
             'Console.WriteLine("token: ^" + token + "$")
@@ -83,12 +83,16 @@ Namespace Mal
                 Dim str As String = match.Groups(6).Value
                 return New Mal.types.MalString(
                         str.Substring(1, str.Length-2) _
-                        .Replace("\""", """") _
-                        .Replace("\n", Environment.NewLine))
+                        .Replace("\\",         ChrW(&H029e)) _
+                        .Replace("\""",        """") _
+                        .Replace("\n",         Environment.NewLine) _
+                        .Replace(ChrW(&H029e), "\"))
             Else If match.Groups(7).Value <> String.Empty Then
-                return New Mal.types.MalString(ChrW(&H029e) & match.Groups(7).Value)
+                throw New ParseError("expected '""', got EOF")
             Else If match.Groups(8).Value <> String.Empty Then
-                return New Mal.types.MalSymbol(match.Groups(8).Value)
+                return New Mal.types.MalString(ChrW(&H029e) & match.Groups(8).Value)
+            Else If match.Groups(9).Value <> String.Empty Then
+                return New Mal.types.MalSymbol(match.Groups(9).Value)
             Else
                 throw New ParseError("unrecognized '" & match.Groups(0).Value & "'")
             End If

@@ -35,18 +35,44 @@ namespace Mal {
         static MalFunc symbol_Q = new MalFunc(
             a => a[0] is MalSymbol ? True : False);
 
-        static MalFunc keyword = new MalFunc(
-            a => new MalString("\u029e" + ((MalString)a[0]).getValue()));
-
-        static MalFunc keyword_Q = new MalFunc(
+        static MalFunc string_Q = new MalFunc(
             a => {
-                if (a[0] is MalString &&
-                    ((MalString)a[0]).getValue()[0] == '\u029e') {
-                    return True;
+                if (a[0] is MalString) {
+                    var s = ((MalString)a[0]).getValue();
+                    return (s.Length == 0 || s[0] != '\u029e') ? True : False;
                 } else {
                     return False;
                 }
             } );
+
+        static MalFunc keyword = new MalFunc(
+            a => {
+                if (a[0] is MalString &&
+                    ((MalString)a[0]).getValue()[0] == '\u029e') {
+                    return a[0];
+                } else {
+                    return new MalString("\u029e" + ((MalString)a[0]).getValue());
+                }
+            } );
+
+        static MalFunc keyword_Q = new MalFunc(
+            a => {
+                if (a[0] is MalString) {
+                    var s = ((MalString)a[0]).getValue();
+                    return (s.Length > 0 && s[0] == '\u029e') ? True : False;
+                } else {
+                    return False;
+                }
+            } );
+
+        static MalFunc number_Q = new MalFunc(
+            a => a[0] is MalInt ? True : False);
+
+        static MalFunc function_Q = new MalFunc(
+            a => a[0] is MalFunc && !((MalFunc)a[0]).isMacro() ? True : False);
+
+        static MalFunc macro_Q = new MalFunc(
+            a => a[0] is MalFunc && ((MalFunc)a[0]).isMacro() ? True : False);
 
 
         // Number functions
@@ -183,10 +209,10 @@ namespace Mal {
             });
 
         static MalFunc first = new MalFunc(
-            a => ((MalList)a[0])[0]);
+            a => a[0] == Nil ? Nil : ((MalList)a[0])[0]);
 
         static MalFunc rest = new MalFunc(
-            a => ((MalList)a[0]).rest());
+            a => a[0] == Nil ? new MalList() : ((MalList)a[0]).rest());
 
         static MalFunc empty_Q = new MalFunc(
             a => ((MalList)a[0]).size() == 0 ? True : False);
@@ -216,6 +242,32 @@ namespace Mal {
                 }
             });
 
+
+        static MalFunc seq = new MalFunc(
+            a => {
+                if (a[0] == Nil) {
+                    return Nil;
+                } else if (a[0] is MalVector) {
+                    return (((MalVector)a[0]).size() == 0)
+                        ? (MalVal)Nil
+                        : new MalList(((MalVector)a[0]).getValue());
+                } else if (a[0] is MalList) {
+                    return (((MalList)a[0]).size() == 0)
+                        ? Nil
+                        : a[0];
+                } else if (a[0] is MalString) {
+                    var s = ((MalString)a[0]).getValue();
+                    if (s.Length == 0) {
+                        return Nil;
+                    }
+                    var chars_list = new List<MalVal>();
+                    foreach (var c in s) {
+                        chars_list.Add(new MalString(c.ToString()));
+                    }
+                    return new MalList(chars_list);
+                }
+                return Nil;
+            });
 
         // General list related functions
         static MalFunc apply = new MalFunc(
@@ -279,8 +331,12 @@ namespace Mal {
             {"false?", false_Q},
             {"symbol", new MalFunc(a => new MalSymbol((MalString)a[0]))},
             {"symbol?", symbol_Q},
+            {"string?", string_Q},
             {"keyword", keyword},
             {"keyword?", keyword_Q},
+            {"number?", number_Q},
+            {"fn?", function_Q},
+            {"macro?", macro_Q},
 
             {"pr-str", pr_str},
             {"str", str},
@@ -321,6 +377,7 @@ namespace Mal {
             {"empty?", empty_Q},
             {"count", count},
             {"conj", conj},
+            {"seq", seq},
             {"apply", apply},
             {"map", map},
 

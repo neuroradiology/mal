@@ -122,7 +122,7 @@ Namespace Mal
             ' apply list
             Dim expanded As MalVal = macroexpand(orig_ast, env)
             if not expanded.list_Q() Then
-                return expanded
+                return eval_ast(expanded, env)
             End If
             Dim ast As MalList = DirectCast(expanded, MalList)
 
@@ -183,7 +183,7 @@ Namespace Mal
                             If TypeOf e Is Mal.types.MalException Then
                                 exc = DirectCast(e,Mal.types.MalException).getValue()
                             Else
-                                exc = New MalString(e.StackTrace)
+                                exc = New MalString(e.Message)
                             End If
                             return EVAL(
                                 DirectCast(a2,MalList)(2),
@@ -191,8 +191,8 @@ Namespace Mal
                                            DirectCast(a2,MalList).slice(1,2),
                                            New MalList(exc)))
                         End If
-                        Throw e
                     End If
+                    Throw e
                 End Try
             Case "do"
                 eval_ast(ast.slice(1, ast.size()-1), env)
@@ -275,9 +275,8 @@ Namespace Mal
 
             ' core.mal: defined using the language itself
             REP("(def! not (fn* (a) (if a false true)))")
-            REP("(def! load-file (fn* (f) (eval (read-string (str ""(do "" (slurp f) "")"")))))")
+            REP("(def! load-file (fn* (f) (eval (read-string (str ""(do "" (slurp f) ""\nnil)"")))))")
             REP("(defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw ""odd number of forms to cond"")) (cons 'cond (rest (rest xs)))))))")
-            REP("(defmacro! or (fn* (& xs) (if (empty? xs) nil (if (= 1 (count xs)) (first xs) `(let* (or_FIXME ~(first xs)) (if or_FIXME or_FIXME (or ~@(rest xs))))))))")
 
             If args.Length > fileIdx Then
                 REP("(load-file """ & args(fileIdx) & """)")

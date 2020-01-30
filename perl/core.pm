@@ -1,87 +1,82 @@
 package core;
 use strict;
-use warnings FATAL => qw(all);
-use Exporter 'import';
-our @EXPORT_OK = qw($core_ns);
+use warnings;
+
+use Data::Dumper;
+use Hash::Util qw(fieldhash);
+use List::Util qw(pairmap);
 use Time::HiRes qw(time);
 
 use readline;
-use types qw(_sequential_Q _equal_Q _clone $nil $true $false
-             _nil_Q _true_Q _false_Q
-             _symbol _symbol_Q _keyword _keyword_Q _list_Q _vector_Q
-             _hash_map _hash_map_Q _assoc_BANG _dissoc_BANG _atom_Q);
+use types qw(_equal_Q thaw_key $nil $true $false);
 use reader qw(read_str);
 use printer qw(_pr_str);
-
-use Data::Dumper;
+use interop qw(pl_to_mal);
 
 # String functions
 
 sub pr_str {
-    return String->new(join(" ", map {_pr_str($_, 1)} @{$_[0]->{val}}));
+    return Mal::String->new(join(" ", map {_pr_str($_, 1)} @_));
 }
 
 sub str {
-    return String->new(join("", map {_pr_str($_, 0)} @{$_[0]->{val}}));
+    return Mal::String->new(join("", map {_pr_str($_, 0)} @_));
 }
 
 sub prn {
-    print join(" ", map {_pr_str($_, 1)} @{$_[0]->{val}}) . "\n";
+    print join(" ", map {_pr_str($_, 1)} @_) . "\n";
     return $nil
 }
 
 sub println {
-    print join(" ", map {_pr_str($_, 0)} @{$_[0]->{val}}) . "\n";
+    print join(" ", map {_pr_str($_, 0)} @_) . "\n";
     return $nil
 }
 
 sub mal_readline {
     my $line = readline::mal_readline(${$_[0]});
-    return defined $line ? String->new($line) : $nil;
+    return defined $line ? Mal::String->new($line) : $nil;
 }
 
 sub slurp {
-    my $fname = ${$_[0]}; 
-    open(my $fh, '<', $fname) or die "error opening '$fname'";
+    use autodie;
+    open(my $fh, '<', ${$_[0]});
     my $data = do { local $/; <$fh> };
-    String->new($data)
+    Mal::String->new($data)
 }
 
 # Hash Map functions
 
 sub assoc {
     my $src_hsh = shift;
-    my $new_hsh = { %{$src_hsh->{val}} };
-    return _assoc_BANG($new_hsh, @_);
+    return Mal::HashMap->new( { %$src_hsh, @_ } );
 }
 
 sub dissoc {
-    my $src_hsh = shift;
-    my $new_hsh = { %{$src_hsh->{val}} };
-    return _dissoc_BANG($new_hsh, @_);
+    my $new_hsh = { %{shift @_} };
+    delete @{$new_hsh}{@_};
+    return Mal::HashMap->new($new_hsh);
 }
 
 
 sub get {
     my ($hsh, $key) = @_;
-    return $nil if $hsh eq $nil;
-    return exists $hsh->{val}->{$$key} ? $hsh->{val}->{$$key} : $nil;
+    return $hsh->{$key} // $nil;
 }
 
 sub contains_Q {
     my ($hsh, $key) = @_;
-    return $nil if $hsh eq $false;
-    return (exists $hsh->{val}->{$$key}) ? $true : $false;
+    return (exists $hsh->{$key}) ? $true : $false;
 }
 
 sub mal_keys {
-    my @ks = map { String->new($_) } keys %{$_[0]->{val}};
-    return List->new(\@ks);
+    my @ks = map { thaw_key($_) } keys %{$_[0]};
+    return Mal::List->new(\@ks);
 }
 
 sub mal_vals {
-    my @vs = values %{$_[0]->{val}};
-    return List->new(\@vs);
+    my @vs = values %{$_[0]};
+    return Mal::List->new(\@vs);
 }
 
 
@@ -89,154 +84,159 @@ sub mal_vals {
 
 sub cons {
     my ($a, $b) = @_;
-    my @new_arr = @{[$a]};
-    push @new_arr, @{$b->{val}};
-    List->new(\@new_arr);
-}
-
-sub concat {
-    if (scalar(@_) == 0) { return List->new([]); }
-    my ($a) = shift;
-    my @new_arr = @{$a->{val}};
-    map { push @new_arr, @{$_->{val}} } @_;
-    List->new(\@new_arr);
+    Mal::List->new([$a, @$b]);
 }
 
 sub nth {
     my ($seq,$i) = @_;
-    if (@{$seq->{val}} > $i) {
-        return scalar($seq->nth($i));
-    } else {
-        die "nth: index out of bounds";
-    }
+    return $seq->[$i] // die "nth: index out of bounds";
 }
 
-sub first { my ($seq) = @_; return scalar(@{$seq->{val}}) > 0 ? $seq->nth(0) : $nil; }
-
-sub rest { return $_[0]->rest(); }
-
-sub count {
-    if (_nil_Q($_[0])) {
-        return Integer->new(0);
-    } else {
-        return Integer->new(scalar(@{$_[0]->{val}}))
-    }
+sub first {
+    my ($seq) = @_;
+    return $seq->[0] // $nil;
 }
 
 sub apply {
-    my @all_args = @{$_[0]->{val}};
-    my $f = $all_args[0];
-    my @apply_args = @all_args[1..$#all_args];
-    my @args = @apply_args[0..$#apply_args-1];
-    push @args, @{$apply_args[$#apply_args]->{val}};
-    if ((ref $f) =~ /^Function/) {
-        return $f->apply(List->new(\@args));
-    } else {
-        return &{ $f }(List->new(\@args));
-    }
+    my $f = shift;
+    push @_, @{pop @_};
+    goto &$f;
 }
 
 sub mal_map {
     my $f = shift;
-    my @arr;
-    if ((ref $f) =~ /^Function/) {
-        @arr = map { $f->apply(List->new([$_])) } @{$_[0]->{val}};
-    } else {
-        @arr = map { &{ $f}(List->new([$_])) } @{$_[0]->{val}};
-    }
-    return List->new(\@arr);
+    my @arr = map { &$f($_) } @{$_[0]};
+    return Mal::List->new(\@arr);
 }
 
+sub conj {
+    my $seq = shift;
+    my $new_seq = $seq->clone;
+    if ($new_seq->isa('Mal::List')) {
+        unshift @$new_seq, reverse @_;
+    } else {
+        push @$new_seq, @_;
+    }
+    return $new_seq;
+}
+
+sub seq {
+    my ($arg) = @_;
+    if ($arg eq $nil) {
+        return $nil;
+    } elsif ($arg->isa('Mal::List')) {
+        return $nil unless @$arg;
+        return $arg;
+    } elsif ($arg->isa('Mal::Vector')) {
+        return $nil unless @$arg;
+        return Mal::List->new([@$arg]);
+    } elsif ($arg->isa('Mal::String')) {
+        return $nil if length($$arg) == 0;
+        my @chars = map { Mal::String->new($_) } split(//, $$arg);
+        return Mal::List->new(\@chars);
+    } else {
+        die "seq requires list or vector or string or nil";
+    }
+}
+
+fieldhash my %meta;
 
 # Metadata functions
 sub with_meta {
-    my $new_obj = _clone($_[0]);
-    $new_obj->{meta} = $_[1];
+    my $new_obj = $_[0]->clone;
+    $meta{$new_obj} = $_[1];
     return $new_obj;
-}
-
-sub meta {
-    if ((ref $_[0]) && !((ref $_[0]) =~ /^CODE/)) {
-        return $_[0]->{meta};
-    } else {
-        return $nil;
-    }
 }
 
 
 # Atom functions
 sub swap_BANG {
     my ($atm,$f,@args) = @_;
-    unshift @args, $atm->{val};
-    if ((ref $f) =~ /^Function/) {
-        return $atm->{val} = $f->apply(List->new(\@args));
-    } else {
-        return $atm->{val} = &{ $f }(List->new(\@args));
-    }
+    return $$atm = &$f($$atm, @args);
+}
+
+
+# Interop
+
+sub pl_STAR {
+    my $result = eval(${$_[0]});
+    die $@ if $@;
+    return pl_to_mal($result);
 }
 
 
 
-our $core_ns = {
-    '=' =>  sub { _equal_Q($_[0]->nth(0), $_[0]->nth(1)) ? $true : $false },
-    'throw' => sub { die $_[0]->nth(0) },
-    'nil?' => sub { _nil_Q($_[0]->nth(0)) ? $true : $false },
-    'true?' => sub { _true_Q($_[0]->nth(0)) ? $true : $false },
-    'false?' => sub { _false_Q($_[0]->nth(0)) ? $true : $false },
-    'symbol'  => sub { Symbol->new(${$_[0]->nth(0)}) },
-    'symbol?' => sub { _symbol_Q($_[0]->nth(0)) ? $true : $false },
-    'keyword'  => sub { _keyword(${$_[0]->nth(0)}) },
-    'keyword?' => sub { _keyword_Q($_[0]->nth(0)) ? $true : $false },
+%core::ns = (
+    '='           => sub { _equal_Q($_[0], $_[1]) ? $true : $false },
+    'throw'       => sub { die $_[0] },
+    'nil?'        => sub { $_[0] eq $nil ? $true : $false },
+    'true?'       => sub { $_[0] eq $true ? $true : $false },
+    'false?'      => sub { $_[0] eq $false ? $true : $false },
+    'number?'     => sub { $_[0]->isa('Mal::Integer') ? $true : $false },
+    'symbol'      => sub { Mal::Symbol->new(${$_[0]}) },
+    'symbol?'     => sub { $_[0]->isa('Mal::Symbol') ? $true : $false },
+    'string?'     => sub { $_[0]->isa('Mal::String') ? $true : $false },
+    'keyword'     => sub { Mal::Keyword->new(${$_[0]}) },
+    'keyword?'    => sub { $_[0]->isa('Mal::Keyword') ? $true : $false },
+    'fn?'         => sub { $_[0]->isa('Mal::Function') ? $true : $false },
+    'macro?'      => sub { $_[0]->isa('Mal::Macro') ? $true : $false },
 
-    'pr-str' =>  sub { pr_str($_[0]) },
-    'str' =>     sub { str($_[0]) },
-    'prn' =>     sub { prn($_[0]) },
-    'println' => sub { println($_[0]) },
-    'readline' =>    sub { mal_readline($_[0]->nth(0)) },
-    'read-string' => sub { read_str(${$_[0]->nth(0)}) },
-    'slurp' =>       sub { slurp($_[0]->nth(0)) },
-    '<' =>  sub { ${$_[0]->nth(0)} <  ${$_[0]->nth(1)} ? $true : $false },
-    '<=' => sub { ${$_[0]->nth(0)} <= ${$_[0]->nth(1)} ? $true : $false },
-    '>' =>  sub { ${$_[0]->nth(0)} >  ${$_[0]->nth(1)} ? $true : $false },
-    '>=' => sub { ${$_[0]->nth(0)} >= ${$_[0]->nth(1)} ? $true : $false },
-    '+' =>  sub { Integer->new(${$_[0]->nth(0)} + ${$_[0]->nth(1)}) },
-    '-' =>  sub { Integer->new(${$_[0]->nth(0)} - ${$_[0]->nth(1)}) },
-    '*' =>  sub { Integer->new(${$_[0]->nth(0)} * ${$_[0]->nth(1)}) },
-    '/' =>  sub { Integer->new(${$_[0]->nth(0)} / ${$_[0]->nth(1)}) },
-    'time-ms' => sub { Integer->new(int(time()*1000)) },
+    'pr-str'      => \&pr_str,
+    'str'         => \&str,
+    'prn'         => \&prn,
+    'println'     => \&println,
+    'readline'    => \&mal_readline,
+    'read-string' => sub { read_str(${$_[0]}) },
+    'slurp'       => \&slurp,
+    '<'           => sub { ${$_[0]} <  ${$_[1]} ? $true : $false },
+    '<='          => sub { ${$_[0]} <= ${$_[1]} ? $true : $false },
+    '>'           => sub { ${$_[0]} >  ${$_[1]} ? $true : $false },
+    '>='          => sub { ${$_[0]} >= ${$_[1]} ? $true : $false },
+    '+'           => sub { Mal::Integer->new(${$_[0]} + ${$_[1]}) },
+    '-'           => sub { Mal::Integer->new(${$_[0]} - ${$_[1]}) },
+    '*'           => sub { Mal::Integer->new(${$_[0]} * ${$_[1]}) },
+    '/'           => sub { Mal::Integer->new(${$_[0]} / ${$_[1]}) },
+    'time-ms'     => sub { Mal::Integer->new(int(time()*1000)) },
 
-    'list'  => sub { List->new($_[0]->{val}) },
-    'list?' => sub { _list_Q($_[0]->nth(0)) ? $true : $false },
-    'vector'  => sub { Vector->new($_[0]->{val}) },
-    'vector?' => sub { _vector_Q($_[0]->nth(0)) ? $true : $false },
-    'hash-map' => sub { _hash_map(@{$_[0]->{val}}) },
-    'map?' => sub { _hash_map_Q($_[0]->nth(0)) ? $true : $false },
-    'assoc' => sub { assoc(@{$_[0]->{val}}) },
-    'dissoc' => sub { dissoc(@{$_[0]->{val}}) },
-    'get' => sub { get($_[0]->nth(0),$_[0]->nth(1)) },
-    'contains?' => sub { contains_Q($_[0]->nth(0),$_[0]->nth(1)) },
-    'keys' => sub { mal_keys(@{$_[0]->{val}}) },
-    'vals' => sub { mal_vals(@{$_[0]->{val}}) },
+    'list'        => sub { Mal::List->new(\@_) },
+    'list?'       => sub { $_[0]->isa('Mal::List') ? $true : $false },
+    'vector'      => sub { Mal::Vector->new(\@_) },
+    'vector?'     => sub { $_[0]->isa('Mal::Vector') ? $true : $false },
+    'hash-map'    => sub { Mal::HashMap->new(\@_) },
+    'map?'        => sub { $_[0]->isa('Mal::HashMap') ? $true : $false },
+    'assoc'       => \&assoc,
+    'dissoc'      => \&dissoc,
+    'get'         => \&get,
+    'contains?'   => \&contains_Q,
+    'keys'        => \&mal_keys,
+    'vals'        => \&mal_vals,
 
-    'sequential?' => sub { _sequential_Q($_[0]->nth(0)) ? $true : $false },
-    'nth' => sub { nth($_[0]->nth(0), ${$_[0]->nth(1)}) },
-    'first' => sub { first($_[0]->nth(0)) },
-    'rest' => sub { rest($_[0]->nth(0)) },
-    'cons' => sub { cons($_[0]->nth(0), $_[0]->nth(1)) },
-    'concat' => sub { concat(@{$_[0]->{val}}) },
-    'empty?' => sub { scalar(@{$_[0]->nth(0)->{val}}) == 0 ? $true : $false },
-    'count' => sub { count($_[0]->nth(0)) },
-    'apply' => sub { apply($_[0]) },
-    'map' => sub { mal_map($_[0]->nth(0), $_[0]->nth(1)) },
-    'conj' => sub { die "not implemented\n"; },
+    'sequential?' => sub { $_[0]->isa('Mal::Sequence') ? $true : $false },
+    'nth'         => sub { nth($_[0], ${$_[1]}) },
+    'first'       => \&first,
+    'rest'        => sub { $_[0]->rest() },
+    'cons'        => \&cons,
+    'concat'      => sub { Mal::List->new([map @$_, @_]) },
+    'empty?'      => sub { @{$_[0]} ? $false : $true },
+    'count'       => sub { Mal::Integer->new(scalar(@{$_[0]})) },
+    'apply'       => \&apply,
+    'map'         => \&mal_map,
+    'conj'        => \&conj,
+    'seq'         => \&seq,
 
-    'with-meta' => sub { with_meta($_[0]->nth(0), $_[0]->nth(1)) },
-    'meta' => sub { meta($_[0]->nth(0)) },
-    'atom' => sub { Atom->new($_[0]->nth(0)) },
-    'atom?' => sub { _atom_Q($_[0]->nth(0)) ? $true : $false },
-    'deref' => sub { $_[0]->nth(0)->{val} },
-    'reset!' => sub { $_[0]->nth(0)->{val} = $_[0]->nth(1) },
-    'swap!' => sub { swap_BANG(@{$_[0]->{val}}) },
-};
+    'with-meta'   => \&with_meta,
+    'meta'        => sub { $meta{$_[0]} // $nil },
+    'atom'        => sub { Mal::Atom->new($_[0]) },
+    'atom?'       => sub { $_[0]->isa('Mal::Atom') ? $true : $false },
+    'deref'       => sub { ${$_[0]} },
+    'reset!'      => sub { ${$_[0]} = $_[1] },
+    'swap!'       => \&swap_BANG,
+
+    'pl*'         => \&pl_STAR,
+);
+
+foreach my $f (values %core::ns) {
+    $f = Mal::Function->new($f);
+}
 
 1;

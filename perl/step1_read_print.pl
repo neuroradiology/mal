@@ -1,11 +1,11 @@
 use strict;
-use warnings FATAL => qw(all);
-no if $] >= 5.018, warnings => "experimental::smartmatch";
+use warnings;
 use File::Basename;
 use lib dirname (__FILE__);
-use readline qw(mal_readline set_rl_mode);
-use feature qw(switch);
 
+use Scalar::Util qw(blessed);
+
+use readline qw(mal_readline set_rl_mode);
 use reader;
 use printer;
 
@@ -33,7 +33,7 @@ sub REP {
     return PRINT(EVAL(READ($str), {}));
 }
 
-if (scalar(@ARGV) > 0 && $ARGV[0] eq "--raw") {
+if (@ARGV && $ARGV[0] eq "--raw") {
     set_rl_mode("raw");
 }
 while (1) {
@@ -43,19 +43,15 @@ while (1) {
         local $@;
         my $ret;
         eval {
-            use autodie; # always "throw" errors
             print(REP($line), "\n");
             1;
         } or do {
             my $err = $@;
-            given (ref $err) {
-                when (/^BlankException/) {
-                    # ignore and continue
-                }
-                default {
-                    chomp $err;
-                    print "Error: $err\n";
-                }
+            if (defined(blessed $err) && $err->isa('Mal::BlankException')) {
+		# ignore and continue
+	    } else {
+		chomp $err;
+		print "Error: $err\n";
             }
         };
     };

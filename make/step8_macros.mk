@@ -32,7 +32,7 @@ $(strip \
 endef
 
 define IS_MACRO_CALL
-$(if $(call _list?,$(1)),$(call ENV_FIND,$(2),_macro_$($(call _nth,$(1),0)_value)),)
+$(if $(call _list?,$(1)),$(if $(call ENV_FIND,$(2),$($(call _nth,$(1),0)_value)),$(_macro_$(call ENV_GET,$(2),$($(call _nth,$(1),0)_value))),),)
 endef
 
 define MACROEXPAND
@@ -96,7 +96,7 @@ $(if $(__ERROR),,\
       $(foreach a1,$(call _nth,$(1),1),\
         $(foreach a2,$(call _nth,$(1),2),\
           $(foreach res,$(call EVAL,$(a2),$(2)),\
-            $(if $(call ENV_SET,$(2),_macro_$($(a1)_value),true),,)\
+            $(eval _macro_$(res) = true)\
             $(if $(call ENV_SET,$(2),$($(a1)_value),$(res)),$(res),)))),\
     $(if $(call _EQ,macroexpand,$($(a0)_value)),\
       $(call MACROEXPAND,$(call _nth,$(1),1),$(2)),\
@@ -126,8 +126,10 @@ $(strip $(if $(__ERROR),,\
   $(if $(call _list?,$(1)),\
     $(foreach ast,$(call MACROEXPAND,$(1),$(2)),
       $(if $(call _list?,$(ast)),\
-        $(word 1,$(strip $(call EVAL_INVOKE,$(ast),$(2)) $(__nil))),\
-	$(ast))),\
+        $(if $(call _EQ,0,$(call _count,$(ast))),\
+          $(ast),\
+          $(word 1,$(strip $(call EVAL_INVOKE,$(ast),$(2)) $(__nil)))),\
+	$(call EVAL_AST,$(ast),$(2)))),\
     $(call EVAL_AST,$(1),$(2)))))
 endef
 
@@ -152,9 +154,8 @@ REPL_ENV := $(call ENV_SET,$(REPL_ENV),*ARGV*,$(_argv))
 
 # core.mal: defined in terms of the language itself
 $(call do,$(call REP, (def! not (fn* (a) (if a false true))) ))
-$(call do,$(call REP, (def! load-file (fn* (f) (eval (read-string (str "(do " (slurp f) ")"))))) ))
+$(call do,$(call REP, (def! load-file (fn* (f) (eval (read-string (str "(do " (slurp f) "\nnil)"))))) ))
 $(call do,$(call REP, (defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw "odd number of forms to cond")) (cons 'cond (rest (rest xs))))))) ))
-$(call do,$(call REP, (defmacro! or (fn* (& xs) (if (empty? xs) nil (if (= 1 (count xs)) (first xs) `(let* (or_FIXME ~(first xs)) (if or_FIXME or_FIXME (or ~@(rest xs)))))))) ))
 
 # Load and eval any files specified on the command line
 $(if $(MAKECMDGOALS),\

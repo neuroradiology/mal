@@ -46,10 +46,11 @@ drop
     target argc ;
 
 MalNativeFn
-  extend eval-invoke ( env list this -- list )
-    MalNativeFn/xt @ { xt }
-    eval-rest ( argv argc )
-    xt execute ( return-val ) ;;
+  extend eval-invoke { env list this -- list }
+    env list eval-rest ( argv argc )
+    this invoke ;;
+  extend invoke ( argv argc this -- val )
+    MalNativeFn/xt @ execute ;;
 drop
 
 SpecialOp
@@ -164,34 +165,38 @@ defspecial if { env list -- val }
 
 s" &" MalSymbol. constant &-sym
 
-MalUserFn
-  extend eval-invoke { call-env list mal-fn -- list }
-    call-env list eval-rest { argv argc }
-
+: new-user-fn-env { argv argc mal-fn -- env }
     mal-fn MalUserFn/formal-args @ { f-args-list }
     mal-fn MalUserFn/env @ MalEnv. { env }
 
     f-args-list MalList/start @ { f-args }
     f-args-list MalList/count @ ?dup 0= if else
-        \ pass nil for last arg, unless overridden below
-        1- cells f-args + @ mal-nil env env/set
+        \ pass empty list for last arg, unless overridden below
+        1- cells f-args + @ MalList new env env/set
     endif
     argc 0 ?do
         f-args i cells + @
         dup &-sym m= if
             drop
-            f-args i 1+ cells + @ ( more-args-symbol )
-            MalList new ( sym more-args )
-            argc i - dup { c } over MalList/count !
-            c cells allocate throw dup { start } over MalList/start !
+            argc i - { c }
+            c cells allocate throw { start }
             argv i cells +  start  c cells  cmove
-            env env/set
+            f-args i 1+ cells + @ ( more-args-symbol )
+            start c MalList. env env/set
             leave
         endif
         argv i cells + @
         env env/set
     loop
+    env ;
 
+MalUserFn
+  extend eval-invoke { call-env list mal-fn -- list }
+    call-env list eval-rest
+    mal-fn invoke ;;
+
+  extend invoke ( argv argc mal-fn )
+    dup { mal-fn } new-user-fn-env { env }
     env   mal-fn MalUserFn/body @   TCO-eval ;;
 drop
 
@@ -207,8 +212,7 @@ MalSymbol
     sym env env/get-addr
     dup 0= if
         drop
-        ." Symbol '" sym pr-str safe-type ." ' not found." cr
-        1 throw
+        0 0 s" ' not found" sym pr-str s" '" ...throw-str
     else
         @
     endif ;;
@@ -224,8 +228,12 @@ drop
 
 MalList
   extend mal-eval { env list -- val }
-    env list MalList/start @ @ eval
-    env list rot eval-invoke ;;
+    list MalList/count @ 0= if
+        list
+    else
+        env list MalList/start @ @ eval
+        env list rot eval-invoke
+    endif ;;
 drop
 
 MalVector
@@ -259,7 +267,23 @@ defcore eval ( argv argc )
 create buff 128 allot
 77777777777 constant stack-leak-detect
 
-s\" (def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))" rep 2drop
+: nop ;
+
+defcore swap! { argv argc -- val }
+    \ argv is  (atom fn args...)
+    argv @ { atom }
+    argv cell+ @ { fn }
+    argc 1- { call-argc }
+    call-argc cells allocate throw { call-argv }
+    atom Atom/val   call-argv    1 cells   cmove
+    argv cell+ cell+   call-argv cell+   call-argc 1- cells   cmove
+    call-argv call-argc fn  invoke
+    dup TCO-eval = if drop eval endif { new-val }
+    new-val atom Atom/val !
+    new-val ;;
+
+s\" (def! not (fn* (x) (if x false true)))" rep 2drop
+s\" (def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))" rep 2drop
 
 : repl ( -- )
     begin
@@ -267,12 +291,23 @@ s\" (def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))
       stack-leak-detect
       buff 128 stdin read-line throw
     while ( num-bytes-read )
-      buff swap ( str-addr str-len )
-      ['] rep
-      \ execute type
-      catch ?dup 0= if safe-type else ." Caught error " . endif
-      cr
-      stack-leak-detect <> if ." --stack leak--" cr endif
+      dup 0 <> if
+        buff swap ( str-addr str-len )
+        ['] rep
+        \ execute ['] nop \ uncomment to see stack traces
+        catch ?dup 0= if
+            safe-type cr
+            stack-leak-detect <> if ." --stack leak--" cr endif
+        else { errno }
+            begin stack-leak-detect = until
+            errno 1 <> if
+                s" forth-errno" MalKeyword. errno MalInt. MalMap/Empty assoc
+                to exception-object
+            endif
+            ." Uncaught exception: "
+            exception-object pr-str safe-type cr
+        endif
+      endif
     repeat ;
 
 : main ( -- )

@@ -15,7 +15,7 @@ Reader.prototype.next = function() { return this.tokens[this.position++]; }
 Reader.prototype.peek = function() { return this.tokens[this.position]; }
 
 function tokenize(str) {
-    var re = /[\s,]*(~@|[\[\]{}()'`~^@]|"(?:\\.|[^\\"])*"|;.*|[^\s\[\]{}('"`,;)]*)/g;
+    var re = /[\s,]*(~@|[\[\]{}()'`~^@]|"(?:\\.|[^\\"])*"?|;.*|[^\s\[\]{}('"`,;)]*)/g;
     var results = [];
     while ((match = re.exec(str)[1]) != '') {
         if (match[0] === ';') { continue; }
@@ -31,10 +31,11 @@ function read_atom (reader) {
         return parseInt(token,10)        // integer
     } else if (token.match(/^-?[0-9][0-9.]*$/)) {
         return parseFloat(token,10);     // float
-    } else if (token[0] === "\"") {
+    } else if (token.match(/^"(?:\\.|[^\\"])*"$/)) {
         return token.slice(1,token.length-1) 
-            .replace(/\\"/g, '"')
-            .replace(/\\n/g, "\n"); // string
+            .replace(/\\(.)/g, function (_, c) { return c === "n" ? "\n" : c})
+    } else if (token[0] === "\"") {
+            throw new Error("expected '\"', got EOF");
     } else if (token[0] === ":") {
         return types._keyword(token.slice(1));
     } else if (token === "nil") {

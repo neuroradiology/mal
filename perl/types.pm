@@ -1,225 +1,197 @@
 package types;
 use strict;
-use warnings FATAL => qw(all);
-no if $] >= 5.018, warnings => "experimental::smartmatch";
-use feature qw(switch);
-use Exporter 'import';
-our @EXPORT_OK = qw(_sequential_Q _equal_Q _clone
-                    $nil $true $false _nil_Q _true_Q _false_Q
-                    _symbol _symbol_Q _keyword _keyword_Q _list_Q _vector_Q
-                    _hash_map _hash_map_Q _assoc_BANG _dissoc_BANG _atom_Q);
+use warnings;
 
 use Data::Dumper;
+use Exporter 'import';
+our @EXPORT_OK = qw(_equal_Q thaw_key
+                    $nil $true $false);
 
 # General functions
 
-sub _sequential_Q {
-    return _list_Q($_[0]) || _vector_Q($_[0])
-}
-
 sub _equal_Q {
     my ($a, $b) = @_;
-    my ($ota, $otb) = (ref $a, ref $b);
-    if (!(($ota eq $otb) || (_sequential_Q($a) && _sequential_Q($b)))) {
+    unless ((ref $a eq ref $b) ||
+	    ($a->isa('Mal::Sequence') && $b->isa('Mal::Sequence'))) {
         return 0;
     }
-    given (ref $a) {
-        when (/^Symbol/) {
-            return $$a eq $$b;
-        }
-        when (/^List/ || /^Vector/) {
-            if (! scalar(@{$a->{val}}) == scalar(@{$b->{val}})) {
-                return 0;
-            }
-            for (my $i=0; $i<scalar(@{$a->{val}}); $i++) {
-                if (! _equal_Q($a->nth($i), $b->nth($i))) {
-                    return 0;
-                }
-            }
-            return 1;
-        }
-        when (/^HashMap/) {
-            die "TODO: Hash map comparison\n";
-        }
-        default {
-            return $$a eq $$b;
-        }
+    if ($a->isa('Mal::Sequence')) {
+	unless (scalar(@$a) == scalar(@$b)) {
+	    return 0;
+	}
+	for (my $i=0; $i<scalar(@$a); $i++) {
+	    unless (_equal_Q($a->[$i], $b->[$i])) {
+		return 0;
+	    }
+	}
+	return 1;
+    } elsif ($a->isa('Mal::HashMap')) {
+	unless (scalar(keys %$a) == scalar(keys %$b)) {
+	    return 0;
+	}
+	foreach my $k (keys %$a) {
+	    unless (_equal_Q($a->{$k}, $b->{$k})) {
+		return 0;
+	    }
+	}
+	return 1;
+    } else {
+	return $$a eq $$b;
     }
     return 0;
 }
 
-sub _clone {
-    my ($obj) = @_;
-    given (ref $obj) {
-        when (/^List/) {
-            return List->new( [ @{$obj->{val}} ] );
-        }
-        when (/^Vector/) {
-            return Vector->new( [ @{$obj->{val}} ] );
-        }
-        when (/^HashMap/) {
-            return Vector->new( { %{$obj->{val}} } );
-        }
-        when (/^Function/) {
-            return Function->new_from_hash( { %{$obj} } );
-        }
-        default {
-            die "Clone of non-collection\n";
-        }
-    }
-}
 
 # Errors/Exceptions
 
 {
-    package BlankException;
-    sub new { my $class = shift; bless String->new("Blank Line") => $class }
+    package Mal::BlankException;
+    sub new { my $class = shift; bless Mal::String->new("Blank Line") => $class }
+}
+
+# Superclass for all kinds of mal value
+
+{
+    package Mal::Type;
 }
 
 # Scalars
 
 {
-    package Nil;
-    sub new { my $class = shift; my $s = 'nil'; bless \$s => $class }
-}
-{
-    package True;
-    sub new { my $class = shift; my $s = 'true'; bless \$s => $class }
-}
-{
-    package False;
-    sub new { my $class = shift; my $s = 'false'; bless \$s => $class }
+    package Mal::Scalar;
+    use parent -norequire, 'Mal::Type';
+    # Overload stringification so that its result is something
+    # suitable for use as a hash-map key.  The important thing here is
+    # that strings and keywords are distinct: support for other kinds
+    # of scalar is a bonus.
+    use overload '""' => sub { my $self = shift; ref($self) . " " . $$self },
+	fallback => 1;
+    sub new { my ($class, $value) = @_; bless \$value, $class }
 }
 
-our $nil =   Nil->new();
-our $true =  True->new();
-our $false = False->new();
+# This function converts hash-map keys back into full objects
 
-sub _nil_Q   { return $_[0] eq $nil }
-sub _true_Q  { return $_[0] eq $true }
-sub _false_Q { return $_[0] eq $false }
-
+sub thaw_key ($) {
+    my ($class, $value) = split(/ /, $_[0], 2);
+    return $class->new($value);
+}
 
 {
-    package Integer;
-    sub new  { my $class = shift; bless \$_[0] => $class }
+    package Mal::Nil;
+    use parent -norequire, 'Mal::Scalar';
+    # Allow nil to be treated as an empty list or hash-map.
+    use overload '@{}' => sub { [] }, '%{}' => sub { {} }, fallback => 1;
+    sub rest { Mal::List->new([]) }
+}
+{
+    package Mal::True;
+    use parent -norequire, 'Mal::Scalar';
+}
+{
+    package Mal::False;
+    use parent -norequire, 'Mal::Scalar';
+}
+
+our $nil =   Mal::Nil->new('nil');
+our $true =  Mal::True->new('true');
+our $false = Mal::False->new('false');
+
+
+{
+    package Mal::Integer;
+    use parent -norequire, 'Mal::Scalar';
 }
 
 
 {
-    package Symbol;
-    sub new  { my $class = shift; bless \$_[0] => $class }
+    package Mal::Symbol;
+    use parent -norequire, 'Mal::Scalar';
 }
-sub _symbol_Q { (ref $_[0]) =~ /^Symbol/ }
-
-
-sub _keyword { return String->new(("\x{029e}".$_[0])); }
-sub _keyword_Q { ((ref $_[0]) =~ /^String/) && ${$_[0]} =~ /^\x{029e}/; }
 
 
 {
-    package String;
-    sub new  { my $class = shift; bless \$_[0] => $class }
+    package Mal::String;
+    use parent -norequire, 'Mal::Scalar';
 }
 
+
+{
+    package Mal::Keyword;
+    use parent -norequire, 'Mal::Scalar';
+}
+
+
+# Sequences
+
+{
+    package Mal::Sequence;
+    use parent -norequire, 'Mal::Type';
+    sub new  { my $class = shift; bless $_[0], $class }
+    sub rest { my $arr = $_[0]; Mal::List->new([@$arr[1..$#$arr]]); }
+    sub clone { my $self = shift; ref($self)->new([@$self]) }
+}
 
 # Lists
 
 {
-    package List;
-    sub new  { my $class = shift; bless {'meta'=>$nil, 'val'=>$_[0]}, $class }
-    sub nth { $_[0]->{val}->[$_[1]]; }
-    #sub _val { $_[0]->{val}->[$_[1]]->{val}; } # return value of nth item
-    sub rest { my @arr = @{$_[0]->{val}}; List->new([@arr[1..$#arr]]); }
-    sub slice { my @arr = @{$_[0]->{val}}; List->new([@arr[$_[1]..$_[2]]]); }
+    package Mal::List;
+    use parent -norequire, 'Mal::Sequence';
 }
-
-sub _list_Q { (ref $_[0]) =~ /^List/ }
 
 
 # Vectors
 
 {
-    package Vector;
-    sub new  { my $class = shift; bless {'meta'=>$nil, 'val'=>$_[0]}, $class }
-    sub nth { $_[0]->{val}->[$_[1]]; }
-    #sub _val { $_[0]->{val}->[$_[1]]->{val}; } # return value of nth item
-    sub rest { my @arr = @{$_[0]->{val}}; List->new([@arr[1..$#arr]]); }
-    sub slice { my @arr = @{$_[0]->{val}}; List->new([@arr[$_[1]..$_[2]]]); }
+    package Mal::Vector;
+    use parent -norequire, 'Mal::Sequence';
 }
 
-sub _vector_Q { (ref $_[0]) =~ /^Vector/ }
 
-
-# Hash Maps
+# Hash-maps
 
 {
-    package HashMap;
-    sub new  { my $class = shift; bless {'meta'=>$nil, 'val'=>$_[0]}, $class }
-    sub get { $_[0]->{val}->{$_[1]}; }
-}
-
-sub _hash_map {
-    my $hsh = {};
-    return _assoc_BANG($hsh, @_);
-}
-
-sub _assoc_BANG {
-    my $hsh = shift;
-    my @lst = @_;
-    for(my $i=0; $i<scalar(@lst); $i+=2) {
-        my $str = $lst[$i];
-        $hsh->{$$str} = $lst[$i+1];
+    package Mal::HashMap;
+    use parent -norequire, 'Mal::Type';
+    use List::Util qw(pairmap);
+    use Scalar::Util qw(reftype);
+    sub new  {
+        my ($class, $src) = @_;
+        if (reftype($src) eq 'ARRAY') {
+            $src = {@$src};
+	}
+        return bless $src, $class;
     }
-    return HashMap->new($hsh);
+    sub clone { my $self = shift; ref($self)->new({%$self}) }
 }
-
-sub _dissoc_BANG {
-    my $hsh = shift;
-    my @lst = @_;
-    for(my $i=0; $i<scalar(@lst); $i++) {
-        my $str = $lst[$i];
-        delete $hsh->{$$str};
-    }
-    return HashMap->new($hsh);
-}
-
-sub _hash_map_Q { (ref $_[0]) =~ /^HashMap/ }
 
 
 # Functions
 
 {
-    package Function;
-    sub new  {
-        my $class = shift;
-        my ($eval, $ast, $env, $params) = @_;
-        bless {'meta'=>$nil,
-               'eval'=>$eval,
-               'ast'=>$ast,
-               'env'=>$env,
-               'params'=>$params,
-               'ismacro'=>0}, $class
-    }
-    sub new_from_hash { my $class = shift; bless $_[0], $class }
-    sub gen_env {
-        my $self = $_[0];
-        return Env->new($self->{env}, $self->{params}, $_[1]);
-    }
-    sub apply {
-        my $self = $_[0];
-        return &{ $self->{eval} }($self->{ast}, gen_env($self, $_[1]));
-    }
+    package Mal::Callable;
+    use parent -norequire, 'Mal::Type';
+    sub new  { my $class = shift; bless $_[0], $class }
+    sub clone { my $self = shift; bless sub { goto &$self }, ref($self) }
+}
+
+{
+    package Mal::Function;
+    use parent -norequire, 'Mal::Callable';
+}
+
+{
+    package Mal::Macro;
+    use parent -norequire, 'Mal::Callable';
 }
 
 
 # Atoms
 
 {
-    package Atom;
-    sub new  { my $class = shift; bless {'meta'=>$nil, 'val'=>$_[0]}, $class }
+    package Mal::Atom;
+    use parent -norequire, 'Mal::Type';
+    sub new  { my ($class, $val) = @_; bless \$val, $class }
+    sub clone { my $self = shift; ref($self)->new($$self) }
 }
-
-sub _atom_Q { (ref $_[0]) =~ /^Atom/ }
 
 1;

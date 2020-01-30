@@ -131,8 +131,8 @@ MalUserFn
 
     f-args-list MalList/start @ { f-args }
     f-args-list MalList/count @ ?dup 0= if else
-        \ pass nil for last arg, unless overridden below
-        1- cells f-args + @ mal-nil env env/set
+        \ pass empty list for last arg, unless overridden below
+        1- cells f-args + @ MalList new env env/set
     endif
     argc 0 ?do
         f-args i cells + @
@@ -165,8 +165,7 @@ MalSymbol
     sym env env/get-addr
     dup 0= if
         drop
-        ." Symbol '" sym pr-str safe-type ." ' not found." cr
-        1 throw
+        0 0 s" ' not found" sym pr-str s" '" ...throw-str
     else
         @
     endif ;;
@@ -182,8 +181,12 @@ drop
 
 MalList
   extend mal-eval { env list -- val }
-    env list MalList/start @ @ eval
-    env list rot eval-invoke ;;
+    list MalList/count @ 0= if
+        list
+    else
+        env list MalList/start @ @ eval
+        env list rot eval-invoke
+    endif ;;
 drop
 
 MalVector
@@ -206,18 +209,31 @@ drop
 create buff 128 allot
 77777777777 constant stack-leak-detect
 
+s\" (def! not (fn* (x) (if x false true)))" rep 2drop
+
 : read-lines
     begin
       ." user> "
       stack-leak-detect
       buff 128 stdin read-line throw
     while ( num-bytes-read )
-      buff swap ( str-addr str-len )
-      ['] rep
-      \ execute safe-type
-      catch ?dup 0= if safe-type else ." Caught error " . endif
-      cr
-      stack-leak-detect <> if ." --stack leak--" cr endif
+      dup 0 <> if
+        buff swap ( str-addr str-len )
+        ['] rep
+        \ execute ['] nop \ uncomment to see stack traces
+        catch ?dup 0= if
+            safe-type cr
+            stack-leak-detect <> if ." --stack leak--" cr endif
+        else { errno }
+            begin stack-leak-detect = until
+            errno 1 <> if
+                s" forth-errno" MalKeyword. errno MalInt. MalMap/Empty assoc
+                to exception-object
+            endif
+            ." Uncaught exception: "
+            exception-object pr-str safe-type cr
+        endif
+      endif
     repeat ;
 
 read-lines

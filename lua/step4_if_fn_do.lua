@@ -40,6 +40,7 @@ function EVAL(ast, env)
     if not types._list_Q(ast) then return eval_ast(ast, env) end
 
     local a0,a1,a2,a3 = ast[1], ast[2],ast[3],ast[4]
+    if not a0 then return ast end
     local a0sym = types._symbol_Q(a0) and a0.val or ""
     if 'def!' == a0sym then
         return env:set(a1, EVAL(a2, env))
@@ -55,18 +56,18 @@ function EVAL(ast, env)
     elseif 'if' == a0sym then
         local cond = EVAL(a1, env)
         if cond == types.Nil or cond == false then
-            if a3 then return EVAL(a3, env) else return types.Nil end
+            if #ast > 3 then return EVAL(a3, env) else return types.Nil end
         else
             return EVAL(a2, env)
         end
     elseif 'fn*' == a0sym then
         return function(...)
-            return EVAL(a2, Env:new(env, a1, arg))
+            return EVAL(a2, Env:new(env, a1, table.pack(...)))
         end
     else
         local args = eval_ast(ast, env)
         local f = table.remove(args, 1)
-        return f(unpack(args))
+        return f(table.unpack(args))
     end
 end
 
@@ -88,6 +89,10 @@ end
 
 -- core.mal: defined using mal
 rep("(def! not (fn* (a) (if a false true)))")
+
+if #arg > 0 and arg[1] == "--raw" then
+    readline.raw = true
+end
 
 while true do
     line = readline.readline("user> ")

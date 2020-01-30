@@ -75,13 +75,12 @@ EVAL <- function(ast, env) {
     repeat {
 
     #cat("EVAL: ", .pr_str(ast,TRUE), "\n", sep="")
-    if (!.list_q(ast)) {
-        return(eval_ast(ast, env))
-    }
+    if (!.list_q(ast)) { return(eval_ast(ast, env)) }
+    if (length(ast) == 0) { return(ast) }
 
     # apply list
     ast <- macroexpand(ast, env)
-    if (!.list_q(ast)) return(ast)
+    if (!.list_q(ast)) return(eval_ast(ast, env))
 
     switch(paste("l",length(ast),sep=""),
            l0={ return(ast) },
@@ -153,14 +152,13 @@ Env.set(repl_env, "*ARGV*", new.list())
 
 # core.mal: defined using the language itself
 . <- rep("(def! not (fn* (a) (if a false true)))")
-. <- rep("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))")
+. <- rep("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))")
 . <- rep("(defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw \"odd number of forms to cond\")) (cons 'cond (rest (rest xs)))))))")
-. <- rep("(defmacro! or (fn* (& xs) (if (empty? xs) nil (if (= 1 (count xs)) (first xs) `(let* (or_FIXME ~(first xs)) (if or_FIXME or_FIXME (or ~@(rest xs))))))))")
 
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) > 0) {
-    Env.set(repl_env, "*ARGV*", new.listl(slice(list(args),2)))
+    Env.set(repl_env, "*ARGV*", new.listl(slice(as.list(args),2)))
     . <- rep(concat("(load-file \"", args[[1]], "\")"))
     quit(save="no", status=0)
 }

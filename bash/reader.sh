@@ -11,9 +11,17 @@ READ_ATOM () {
     local token=${__reader_tokens[${__reader_idx}]}
     __reader_idx=$(( __reader_idx + 1 ))
     case "${token}" in
-        [0-9]*) _number "${token}" ;;
-        \"*)    token="${token:1:-1}"
+        [0-9]*)  _number "${token}" ;;
+        -[0-9]*) _number "${token}" ;;
+        \"*)    if [[ ! "${token}" =~ ^\"(\\.|[^\\\"])*\"$ ]]; then
+                    _error "expected '\"', got EOF"
+                    return
+                fi
+                token="${token:1:-1}"
+                token="${token//\\\\/${__keyw}}"
                 token="${token//\\\"/\"}"
+                token="${token//\\n/$'\n'}"
+                token="${token//${__keyw}/\\}"
                 _string "${token}" ;;
         :*)     _keyword "${token:1}" ;;
         nil)    r="${__nil}" ;;
@@ -42,7 +50,7 @@ READ_SEQ () {
     while [[ "${token}" != "${end}" ]]; do
         if [[ ! "${token}" ]]; then
             r=
-            _error "exepected '${end}', got EOF"
+            _error "expected '${end}', got EOF"
             return
         fi
         READ_FORM
@@ -102,7 +110,6 @@ TOKENIZE () {
     local idx=0
     local chunk=0
     local chunksz=500
-    local match=
     local token=
     local str=
 
@@ -114,16 +121,16 @@ TOKENIZE () {
             chunk=$(( chunk + ${chunksz} ))
         fi
         (( ${#str} == 0 )) && break
-        [[ "${str}" =~ ^^([][{}\(\)^@])|^(~@)|(\"(\\.|[^\\\"])*\")|^(;[^$'\n']*)|^([~\'\`])|^([^][ ~\`\'\";{}\(\)^@\,]+)|^[,]|^[[:space:]]+ ]]
-        match=${BASH_REMATCH[0]}
-        str="${str:${#match}}"
-        token="${match//$'\n'/}"
+        [[ "${str}" =~ ^^([][{}\(\)^@])|^(~@)|^(\"(\\.|[^\\\"])*\"?)|^(;[^$'\n']*)|^([~\'\`])|^([^][ ~\`\'\";{}\(\)^@\,$'\n']+)|^(,)|^([[:space:]]+) ]]
+        token=${BASH_REMATCH[0]}
+        str="${str:${#token}}"
+        token="${token}"
         #echo "MATCH: '${token}' / [${str}]"
         if ! [[ "${token}" =~ (^[,]$|^[[:space:]]*;.*$|^[[:space:]]*$) ]]; then 
             __reader_tokens[${idx}]="${token}"
             idx=$(( idx + 1 ))
         fi
-        if [ -z "${match}" ]; then
+        if [ -z "${token}" ]; then
             _error "Tokenizing error at: ${str:0:50}"
             return 1
         fi
@@ -149,10 +156,10 @@ READ_STR () {
 READLINE_EOF=
 READLINE_HISTORY_FILE=${HOME}/.mal-history
 READLINE () {
-    history -r "${READLINE_HISTORY_FILE}"
+    history -r "${READLINE_HISTORY_FILE}" 2>/dev/null || true
     read -r -e -p "${1}" r || return "$?"
     history -s -- "${r}"
-    history -a "${READLINE_HISTORY_FILE}"
+    history -a "${READLINE_HISTORY_FILE}" 2>/dev/null || true
 }
 
 fi

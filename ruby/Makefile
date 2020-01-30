@@ -1,20 +1,19 @@
-TESTS =
-
 SOURCES_BASE = mal_readline.rb types.rb reader.rb printer.rb
-SOURCES_LISP = env.rb core.rb stepA_interop.rb
+SOURCES_LISP = env.rb core.rb stepA_mal.rb
 SOURCES = $(SOURCES_BASE) $(SOURCES_LISP)
 
-#all: mal.rb
+all:
+	true
 
-.PHONY: stats tests $(TESTS)
+dist: mal.rb mal
 
-stats: $(SOURCES)
-	@wc $^
-stats-lisp: $(SOURCES_LISP)
-	@wc $^
+mal.rb: $(SOURCES)
+	cat $+ | grep -v "^require_relative" > $@
 
-tests: $(TESTS)
+mal: mal.rb
+	echo "#!/usr/bin/env ruby" > $@
+	cat $< >> $@
+	chmod +x $@
 
-$(TESTS):
-	@echo "Running $@"; \
-	ruby $@ || exit 1; \
+clean:
+	rm -f mal.rb mal

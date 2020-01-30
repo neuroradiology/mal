@@ -29,6 +29,7 @@
 
 (define (macro? ast env)
   (and (list? ast)
+       (not (empty? ast))
        (symbol? (first ast))
        (not (equal? null (send env find (first ast))))
        (let ([fn (send env get (first ast))])
@@ -54,8 +55,8 @@
     (eval-ast ast env)
 
     (let ([ast (macroexpand ast env)])
-      (if (not (list? ast))
-        ast
+      (if (or (not (list? ast)) (empty? ast))
+        (eval-ast ast env)
         (let ([a0 (_nth ast 0)])
           (cond
             [(eq? 'def! a0)
@@ -78,7 +79,9 @@
             [(eq? 'macroexpand a0)
              (macroexpand (_nth ast 1) env)]
             [(eq? 'try* a0)
-             (if (eq? 'catch* (_nth (_nth ast 2) 0))
+             (if (or (< (length ast) 3)
+                     (not (eq? 'catch* (_nth (_nth ast 2) 0))))
+               (EVAL (_nth ast 1) env)
                (let ([efn (lambda (exc)
                             (EVAL (_nth (_nth ast 2) 2)
                                   (new Env%
@@ -89,8 +92,7 @@
                    ([mal-exn?  (lambda (exc) (efn (mal-exn-val exc)))]
                     [string?   (lambda (exc) (efn exc))]
                     [exn:fail? (lambda (exc) (efn (format "~a" exc)))])
-                   (EVAL (_nth ast 1) env)))
-               (EVAL (_nth ast 1)))]
+                   (EVAL (_nth ast 1) env))))]
             [(eq? 'do a0)
              (eval-ast (drop (drop-right ast 1) 1) env)
              (EVAL (last ast) env)]
@@ -134,13 +136,12 @@
 ;; core.rkt: defined using Racket
 (hash-for-each core_ns (lambda (k v) (send repl-env set k v)))
 (send repl-env set 'eval (lambda [ast] (EVAL ast repl-env)))
-(send repl-env set '*ARGV* (list))
+(send repl-env set '*ARGV* (_rest (current-command-line-arguments)))
 
 ;; core.mal: defined using the language itself
 (rep "(def! not (fn* (a) (if a false true)))")
-(rep "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))")
+(rep "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))")
 (rep "(defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw \"odd number of forms to cond\")) (cons 'cond (rest (rest xs)))))))")
-(rep "(defmacro! or (fn* (& xs) (if (empty? xs) nil (if (= 1 (count xs)) (first xs) `(let* (or_FIXME ~(first xs)) (if or_FIXME or_FIXME (or ~@(rest xs))))))))")
 
 )
 

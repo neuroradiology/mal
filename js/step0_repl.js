@@ -1,5 +1,6 @@
 if (typeof module !== 'undefined') {
     var readline = require('./node_readline');
+    var printer = require('./printer');
 }
 
 // read
@@ -9,7 +10,7 @@ function READ(str) {
 
 // eval
 function EVAL(ast, env) {
-    return eval(ast);
+    return ast;
 }
 
 // print
@@ -26,12 +27,6 @@ if (typeof require !== 'undefined' && require.main === module) {
     while (true) {
         var line = readline.readline("user> ");
         if (line === null) { break; }
-        try {
-            if (line) { printer.println(rep(line)); }
-        } catch (exc) {
-
-            if (exc.stack) { printer.println(exc.stack); }
-            else           { printer.println(exc); }
-        }
+        if (line) { printer.println(rep(line)); }
     }
 }

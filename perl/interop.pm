@@ -1,33 +1,30 @@
 package interop;
 use strict;
-use warnings FATAL => qw(all);
-no if $] >= 5.018, warnings => "experimental::smartmatch";
-use feature qw(switch);
+use warnings;
+
 use Exporter 'import';
 our @EXPORT_OK = qw( pl_to_mal );
+use List::Util qw(pairmap);
 use Scalar::Util qw(looks_like_number);
 
-use types;
+use types qw($nil);
 
 sub pl_to_mal {
     my($obj) = @_;
-    given (ref $obj) {
-        when(/^ARRAY/) {
+    for (ref $obj) {
+        if (/^ARRAY/) {
             my @arr = map {pl_to_mal($_)} @$obj;
-            return List->new(\@arr);
-        }
-        when(/^HASH/) {
-            my $hsh = {};
-            foreach my $key (keys %$obj) {
-                $hsh->{$key} = pl_to_mal($obj->{$key});
-            }
-            return HashMap->new($hsh)
-        }
-        default {
-            if (looks_like_number($obj)) {
-                return Integer->new($obj);
+            return Mal::List->new(\@arr);
+        } elsif (/^HASH/) {
+            my %hsh = map { pl_to_mal($_) } %$obj;
+            return Mal::HashMap->new(\%hsh)
+        } else {
+	    if (!defined($obj)) {
+		return $nil;
+            } elsif (looks_like_number($obj)) {
+                return Mal::Integer->new($obj);
             } else {
-                return String->new($obj);
+                return Mal::String->new($obj);
             }
         }
     }

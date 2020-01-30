@@ -1,13 +1,16 @@
 use strict;
-use warnings FATAL => qw(all);
+use warnings;
 no if $] >= 5.018, warnings => "experimental::smartmatch";
+use feature qw(switch);
 use File::Basename;
 use lib dirname (__FILE__);
-use readline qw(mal_readline set_rl_mode);
-use feature qw(switch);
-use Data::Dumper;
 
-use types qw(_list_Q);
+use Data::Dumper;
+use List::Util qw(pairs pairmap);
+use Scalar::Util qw(blessed);
+
+use readline qw(mal_readline set_rl_mode);
+use types;
 use reader;
 use printer;
 use env;
@@ -21,56 +24,44 @@ sub READ {
 # eval
 sub eval_ast {
     my($ast, $env) = @_;
-    given (ref $ast) {
-        when (/^Symbol/) {
-            $env->get($ast);
-        }
-        when (/^List/) {
-            my @lst = map {EVAL($_, $env)} @{$ast->{val}};
-            return List->new(\@lst);
-        }
-        when (/^Vector/) {
-            my @lst = map {EVAL($_, $env)} @{$ast->{val}};
-            return Vector->new(\@lst);
-        }
-        when (/^HashMap/) {
-            my $new_hm = {};
-            foreach my $k (keys($ast->{val})) {
-                $new_hm->{$k} = EVAL($ast->get($k), $env);
-            }
-            return HashMap->new($new_hm);
-        }
-        default {
-            return $ast;
-        }
+    if ($ast->isa('Mal::Symbol')) {
+	return $env->get($ast);
+    } elsif ($ast->isa('Mal::Sequence')) {
+	return ref($ast)->new([ map { EVAL($_, $env) } @$ast ]);
+    } elsif ($ast->isa('Mal::HashMap')) {
+	return Mal::HashMap->new({ pairmap { $a => EVAL($b, $env) } %$ast });
+    } else {
+	return $ast;
     }
 }
 
 sub EVAL {
     my($ast, $env) = @_;
     #print "EVAL: " . printer::_pr_str($ast) . "\n";
-    if (! _list_Q($ast)) {
+    if (! $ast->isa('Mal::List')) {
         return eval_ast($ast, $env);
     }
 
     # apply list
-    my ($a0, $a1, $a2, $a3) = @{$ast->{val}};
-    given ($$a0) {
-        when (/^def!$/) {
-            my $res = EVAL($a2, $env);
-            return $env->set($a1, $res);
+    unless (@$ast) { return $ast; }
+    given (${$ast->[0]}) {
+        when ('def!') {
+	    my (undef, $sym, $val) = @$ast;
+            return $env->set($sym, EVAL($val, $env));
         }
-        when (/^let\*$/) {
-            my $let_env = Env->new($env);
-            for(my $i=0; $i < scalar(@{$a1->{val}}); $i+=2) {
-                $let_env->set($a1->nth($i), EVAL($a1->nth($i+1), $let_env));
+        when ('let*') {
+	    my (undef, $bindings, $body) = @$ast;
+            my $let_env = Mal::Env->new($env);
+	    foreach my $pair (pairs @$bindings) {
+		my ($k, $v) = @$pair;
+                $let_env->set($k, EVAL($v, $let_env));
             }
-            return EVAL($a2, $let_env);
+            return EVAL($body, $let_env);
         }
         default {
-            my $el = eval_ast($ast, $env);
-            my $f = $el->nth(0);
-            return &{ $f }($el->rest());
+            my @el = @{eval_ast($ast, $env)};
+            my $f = shift @el;
+            return &$f(@el);
         }
     }
 }
@@ -82,18 +73,22 @@ sub PRINT {
 }
 
 # repl
-my $repl_env = Env->new();
+my $repl_env = Mal::Env->new();
 sub REP {
     my $str = shift;
     return PRINT(EVAL(READ($str), $repl_env));
 }
 
-$repl_env->set(Symbol->new('+'), sub { Integer->new(${$_[0]->nth(0)} + ${$_[0]->nth(1)}) } );
-$repl_env->set(Symbol->new('-'), sub { Integer->new(${$_[0]->nth(0)} - ${$_[0]->nth(1)}) } );
-$repl_env->set(Symbol->new('*'), sub { Integer->new(${$_[0]->nth(0)} * ${$_[0]->nth(1)}) } );
-$repl_env->set(Symbol->new('/'), sub { Integer->new(${$_[0]->nth(0)} / ${$_[0]->nth(1)}) } );
+$repl_env->set(Mal::Symbol->new('+'),
+	       sub { Mal::Integer->new(${$_[0]} + ${$_[1]}) } );
+$repl_env->set(Mal::Symbol->new('-'),
+	       sub { Mal::Integer->new(${$_[0]} - ${$_[1]}) } );
+$repl_env->set(Mal::Symbol->new('*'),
+	       sub { Mal::Integer->new(${$_[0]} * ${$_[1]}) } );
+$repl_env->set(Mal::Symbol->new('/'),
+	       sub { Mal::Integer->new(${$_[0]} / ${$_[1]}) } );
 
-if (scalar(@ARGV) > 0 && $ARGV[0] eq "--raw") {
+if (@ARGV && $ARGV[0] eq "--raw") {
     set_rl_mode("raw");
 }
 while (1) {
@@ -103,19 +98,15 @@ while (1) {
         local $@;
         my $ret;
         eval {
-            use autodie; # always "throw" errors
             print(REP($line), "\n");
             1;
         } or do {
             my $err = $@;
-            given (ref $err) {
-                when (/^BlankException/) {
-                    # ignore and continue
-                }
-                default {
-                    chomp $err;
-                    print "Error: $err\n";
-                }
+            if (defined(blessed $err) && $err->isa('Mal::BlankException')) {
+		# ignore and continue
+	    } else {
+		chomp $err;
+		print "Error: $err\n";
             }
         };
     };

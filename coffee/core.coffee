@@ -1,4 +1,4 @@
-readline = require "../js/node_readline"
+readline = require "./node_readline"
 types = require "./types.coffee"
 reader = require "./reader.coffee"
 printer = require "./printer.coffee"
@@ -17,6 +17,18 @@ conj = (seq, args...) ->
       types._vector(lst...)
     else throw new Error "conj called on " + types._obj_type(seq)
 
+seq = (obj) ->
+  switch types._obj_type(obj)
+    when 'list'
+      if obj.length == 0 then null else obj
+    when 'vector'
+      if obj.length == 0 then null else obj[0..-1]
+    when 'string'
+      if obj.length == 0 then null else obj.split('')
+    when 'nil'
+      null
+    else throw new Error "seq: called on non-sequential " + types._obj_type(seq)
+
 # Metadata functions
 with_meta = (obj,m) ->
   new_obj = types._clone(obj)
@@ -26,14 +38,18 @@ with_meta = (obj,m) ->
 
 exports.ns = {
   '=': (a,b) -> types._equal_Q(a,b),
-  'throw': (a) -> throw a,
+  'throw': (a) -> throw {"object": a},
   'nil?': types._nil_Q,
   'true?': types._true_Q,
   'false?': types._false_Q,
+  'string?': types._string_Q,
   'symbol': types._symbol,
   'symbol?': types._symbol_Q,
   'keyword': types._keyword,
   'keyword?': types._keyword_Q,
+  'number?': (a) -> typeof a == 'number',
+  'fn?': (a) -> typeof a == 'function' and not types._macro_Q(a),
+  'macro?': types._macro_Q,
 
   'pr-str': (a...) -> a.map((exp) -> _pr_str(exp,true)).join(" "),
   'str': (a...) -> a.map((exp) -> _pr_str(exp,false)).join(""),
@@ -51,7 +67,7 @@ exports.ns = {
   '*': (a,b) -> a*b,
   '/': (a,b) -> a/b,
   'time-ms': () -> new Date().getTime(),
-  
+
   'list': (a...) -> a,
   'list?': types._list_Q,
   'vector': (a...) -> types._vector(a...),
@@ -70,13 +86,15 @@ exports.ns = {
   'concat': (a=[],b...) -> a.concat(b...),
   'nth': (a,b) -> if a.length > b then a[b] else
     throw new Error "nth: index out of bounds",
-  'first': (a) -> if a.length > 0 then a[0] else null,
-  'rest': (a) -> a[1..],
+  'first': (a) -> if a != null and a.length > 0 then a[0] else null,
+  'rest': (a) -> if a == null then [] else a[1..],
   'empty?': (a) -> a.length == 0,
   'count': (a) -> if a == null then 0 else a.length,
   'apply': (a,b...) -> a(b[0..-2].concat(b[b.length-1])...),
   'map': (a,b) -> b.map((x) -> a(x)),
+
   'conj': conj,
+  'seq': seq,
 
   'with-meta': with_meta,
   'meta': (a) -> a.__meta__ or null,

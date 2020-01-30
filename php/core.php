@@ -6,7 +6,7 @@ require_once 'reader.php';
 require_once 'printer.php';
 
 // Error/Exception functions
-function mal_throw($obj) { throw new Error($obj); }
+function mal_throw($obj) { throw new _Error($obj); }
 
 
 // String functions
@@ -69,7 +69,8 @@ function get($hm, $k) {
 function contains_Q($hm, $k) { return array_key_exists($k, $hm); }
 
 function keys($hm) {
-    return call_user_func_array('_list', array_keys($hm->getArrayCopy()));
+    return call_user_func_array('_list',
+        array_map('strval', array_keys($hm->getArrayCopy())));
 }
 function vals($hm) {
     return call_user_func_array('_list', array_values($hm->getArrayCopy()));
@@ -105,7 +106,7 @@ function nth($seq, $idx) {
 }
 
 function first($seq) {
-    if (count($seq) === 0) {
+    if ($seq === NULL || count($seq) === 0) {
         return NULL;
     } else {
         return $seq[0];
@@ -113,14 +114,31 @@ function first($seq) {
 }
 
 function rest($seq) {
-    $l = new ListClass();
-    $l->exchangeArray(array_slice($seq->getArrayCopy(), 1));
-    return $l;
+    if ($seq === NULL) {
+        return new ListClass();
+    } else {
+        $l = new ListClass();
+        $l->exchangeArray(array_slice($seq->getArrayCopy(), 1));
+        return $l;
+    }
 }
 
 function empty_Q($seq) { return $seq->count() === 0; }
 
 function scount($seq) { return ($seq === NULL ? 0 : $seq->count()); }
+
+function apply($f) {
+    $args = array_slice(func_get_args(), 1);
+    $last_arg = array_pop($args)->getArrayCopy();
+    return $f->apply(array_merge($args, $last_arg));
+}
+
+function map($f, $seq) {
+    $l = new ListClass();
+    # @ to surpress warning if $f throws an exception
+    @$l->exchangeArray(array_map($f, $seq->getArrayCopy()));
+    return $l;
+}
 
 function conj($src) {
     $args = array_slice(func_get_args(), 1);
@@ -136,17 +154,30 @@ function conj($src) {
     return $s;
 }
 
-function apply($f) {
-    $args = array_slice(func_get_args(), 1);
-    $last_arg = array_pop($args)->getArrayCopy();
-    return $f->apply(array_merge($args, $last_arg));
+function seq($src) {
+    if (_list_Q($src)) {
+        if (count($src) == 0) { return NULL; }
+        return $src;
+    } elseif (_vector_Q($src)) {
+        if (count($src) == 0) { return NULL; }
+        $tmp = $src->getArrayCopy();
+        $s = new ListClass();
+        $s->exchangeArray($tmp);
+        return $s;
+    } elseif (_string_Q($src)) {
+        if (strlen($src) == 0) { return NULL; }
+        $tmp = str_split($src);
+        $s = new ListClass();
+        $s->exchangeArray($tmp);
+        return $s;
+    } elseif (_nil_Q($src)) {
+        return NULL;
+    } else {
+        throw new Exception("seq: called on non-sequence");
+    }
+    return $s;
 }
 
-function map($f, $seq) {
-    $l = new ListClass();
-    $l->exchangeArray(array_map($f, $seq->getArrayCopy()));
-    return $l;
-}
 
 
 // Metadata functions
@@ -179,12 +210,15 @@ $core_ns = array(
     'nil?'=>   function ($a) { return _nil_Q($a); },
     'true?'=>  function ($a) { return _true_Q($a); },
     'false?'=> function ($a) { return _false_Q($a); },
+    'number?'=> function ($a) { return _number_Q($a); },
     'symbol'=> function () { return call_user_func_array('_symbol', func_get_args()); },
     'symbol?'=> function ($a) { return _symbol_Q($a); },
     'keyword'=> function () { return call_user_func_array('_keyword', func_get_args()); },
     'keyword?'=> function ($a) { return _keyword_Q($a); },
 
     'string?'=> function ($a) { return _string_Q($a); },
+    'fn?'=>    function($a) { return _fn_Q($a) || (_function_Q($a) && !$a->ismacro ); },
+    'macro?'=> function($a) { return _function_Q($a) && $a->ismacro; },
     'pr-str'=> function () { return call_user_func_array('pr_str', func_get_args()); },
     'str'=>    function () { return call_user_func_array('str', func_get_args()); },
     'prn'=>    function () { return call_user_func_array('prn', func_get_args()); },
@@ -223,9 +257,11 @@ $core_ns = array(
     'rest'=>   function ($a) { return rest($a); },
     'empty?'=> function ($a) { return empty_Q($a); },
     'count'=>  function ($a) { return scount($a); },
-    'conj'=>   function () { return call_user_func_array('conj', func_get_args()); },
     'apply'=>  function () { return call_user_func_array('apply', func_get_args()); },
     'map'=>    function ($a, $b) { return map($a, $b); },
+
+    'conj'=>   function () { return call_user_func_array('conj', func_get_args()); },
+    'seq'=>    function ($a) { return seq($a); },
 
     'with-meta'=> function ($a, $b) { return with_meta($a, $b); },
     'meta'=>   function ($a) { return meta($a); },

@@ -1,10 +1,9 @@
-$: << File.expand_path(File.dirname(__FILE__))
-require "mal_readline"
-require "types"
-require "reader"
-require "printer"
-require "env"
-require "core"
+require_relative "mal_readline"
+require_relative "types"
+require_relative "reader"
+require_relative "printer"
+require_relative "env"
+require_relative "core"
 
 # read
 def READ(str)
@@ -37,6 +36,9 @@ def EVAL(ast, env)
     if not ast.is_a? List
         return eval_ast(ast, env)
     end
+    if ast.empty?
+        return ast
+    end
 
     # apply list
     a0,a1,a2,a3 = ast
@@ -63,7 +65,7 @@ def EVAL(ast, env)
         end
     when :"fn*"
         return Function.new(a2, env, a1) {|*args|
-            EVAL(a2, Env.new(env, a1, args))
+            EVAL(a2, Env.new(env, a1, List.new(args)))
         }
     else
         el = eval_ast(ast, env)
@@ -96,7 +98,7 @@ repl_env.set(:"*ARGV*", List.new(ARGV.slice(1,ARGV.length) || []))
 
 # core.mal: defined using the language itself
 RE["(def! not (fn* (a) (if a false true)))"]
-RE["(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))"]
+RE["(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))"]
 
 if ARGV.size > 0
     RE["(load-file \"" + ARGV[0] + "\")"]

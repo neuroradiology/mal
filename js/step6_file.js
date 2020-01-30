@@ -40,6 +40,9 @@ function _EVAL(ast, env) {
     if (!types._list_Q(ast)) {
         return eval_ast(ast, env);
     }
+    if (ast.length === 0) {
+        return ast;
+    }
 
     // apply list
     var a0 = ast[0], a1 = ast[1], a2 = ast[2], a3 = ast[3];
@@ -104,10 +107,10 @@ repl_env.set(types._symbol('*ARGV*'), []);
 
 // core.mal: defined using the language itself
 rep("(def! not (fn* (a) (if a false true)))");
-rep("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))");
+rep("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))");
 
 if (typeof process !== 'undefined' && process.argv.length > 2) {
-    repl_env.set('*ARGV*', process.argv.slice(3));
+    repl_env.set(types._symbol('*ARGV*'), process.argv.slice(3));
     rep('(load-file "' + process.argv[2] + '")');
     process.exit(0);
 }
@@ -121,9 +124,9 @@ if (typeof require !== 'undefined' && require.main === module) {
         try {
             if (line) { printer.println(rep(line)); }
         } catch (exc) {
-            if (exc instanceof reader.BlankException) { continue; }
-            if (exc.stack) { printer.println(exc.stack); }
-            else           { printer.println(exc); }
+            if (exc instanceof reader.BlankException) { continue }
+            if (exc instanceof Error) { console.warn(exc.stack) }
+            else { console.warn("Error: " + printer._pr_str(exc, true)) }
         }
     }
 }

@@ -24,7 +24,7 @@ EVAL_AST () {
     vector)
         _map_with_type _vector EVAL "${ast}" "${env}" ;;
     hash_map)
-        local res="" val="" hm="${ANON["${ast}"]}"
+        local res="" key= val="" hm="${ANON["${ast}"]}"
         _hash_map; local new_hm="${r}"
         eval local keys="\${!${hm}[@]}"
         for key in ${keys}; do
@@ -50,6 +50,8 @@ EVAL () {
     fi
 
     # apply list
+    _empty? "${ast}" && r="${ast}" && return
+
     _nth "${ast}" 0; local a0="${r}"
     _nth "${ast}" 1; local a1="${r}"
     _nth "${ast}" 2; local a2="${r}"
@@ -58,7 +60,7 @@ EVAL () {
               [[ "${__ERROR}" ]] && return 1
               ENV_SET "${env}" "${a1}" "${r}"
               return ;;
-        let*) ENV "${env}"; local let_env="${r}"
+        let__STAR__) ENV "${env}"; local let_env="${r}"
               local let_pairs=(${ANON["${a1}"]})
               local idx=0
               #echo "let: [${let_pairs[*]}] for ${a2}"

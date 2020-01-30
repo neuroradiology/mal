@@ -14,14 +14,12 @@ let rec quasiquote ast =
        Types.list [Types.symbol "cons"; quasiquote head; quasiquote (Types.list tail) ]
     | ast -> Types.list [Types.symbol "quote"; ast]
 
-let kw_macro = T.Keyword "macro"
-
 let is_macro_call ast env =
   match ast with
   | T.List { T.value = s :: args } ->
      (match (try Env.get env s with _ -> T.Nil) with
       | T.Fn { T.meta = T.Map { T.value = meta } }
-        -> Types.MalMap.mem kw_macro meta && Types.to_bool (Types.MalMap.find kw_macro meta)
+        -> Types.MalMap.mem Core.kw_macro meta && Types.to_bool (Types.MalMap.find Core.kw_macro meta)
       | _ -> false)
   | _ -> false
 
@@ -54,13 +52,14 @@ let rec eval_ast ast env =
     | _ -> ast
 and eval ast env =
   match macroexpand ast env with
+    | T.List { T.value = [] } -> ast
     | T.List { T.value = [(T.Symbol { T.value = "def!" }); key; expr] } ->
         let value = (eval expr env) in
           Env.set env key value; value
     | T.List { T.value = [(T.Symbol { T.value = "defmacro!" }); key; expr] } ->
        (match (eval expr env) with
           | T.Fn { T.value = f; T.meta = meta } ->
-             let fn = T.Fn { T.value = f; meta = Core.assoc [meta; kw_macro; (T.Bool true)]}
+             let fn = T.Fn { T.value = f; meta = Core.assoc [meta; Core.kw_macro; (T.Bool true)]}
              in Env.set env key fn; fn
           | _ -> raise (Invalid_argument "devmacro! value must be a fn"))
     | T.List { T.value = [(T.Symbol { T.value = "let*" }); (T.Vector { T.value = bindings }); body] }
@@ -100,6 +99,8 @@ and eval ast env =
        eval (quasiquote ast) env
     | T.List { T.value = [T.Symbol { T.value = "macroexpand" }; ast] } ->
        macroexpand ast env
+    | T.List { T.value = [T.Symbol { T.value = "try*" }; scary]} ->
+       (eval scary env)
     | T.List { T.value = [T.Symbol { T.value = "try*" }; scary ;
                           T.List { T.value = [T.Symbol { T.value = "catch*" };
                                               local ; handler]}]} ->
@@ -108,7 +109,7 @@ and eval ast env =
            let value = match exn with
              | Types.MalExn value -> value
              | Invalid_argument msg -> T.String msg
-             | _ -> (T.String "OCaml exception") in
+             | e -> (T.String (Printexc.to_string e)) in
            let sub_env = Env.make (Some env) in
            Env.set sub_env local value;
            eval handler sub_env)
@@ -132,13 +133,17 @@ let rec main =
     Env.set repl_env (Types.symbol "eval")
             (Types.fn (function [ast] -> eval ast repl_env | _ -> T.Nil));
 
-    ignore (rep "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))" repl_env);
+    ignore (rep "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))" repl_env);
     ignore (rep "(def! not (fn* (a) (if a false true)))" repl_env);
     ignore (rep "(defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw \"odd number of forms to cond\")) (cons 'cond (rest (rest xs)))))))" repl_env);
-    ignore (rep "(defmacro! or (fn* (& xs) (if (empty? xs) nil (if (= 1 (count xs)) (first xs) `(let* (or_FIXME ~(first xs)) (if or_FIXME or_FIXME (or ~@(rest xs))))))))" repl_env);
 
     if Array.length Sys.argv > 1 then
-      ignore (rep ("(load-file \"" ^ Sys.argv.(1) ^ "\")") repl_env)
+      try
+        ignore (rep ("(load-file \"" ^ Sys.argv.(1) ^ "\")") repl_env);
+      with
+        | Types.MalExn exc ->
+           output_string stderr ("Exception: " ^ (print exc) ^ "\n");
+           flush stderr
     else
       while true do
         print_string "user> ";
@@ -146,11 +151,14 @@ let rec main =
         try
           print_endline (rep line repl_env);
         with End_of_file -> ()
+           | Types.MalExn exc ->
+              output_string stderr ("Exception: " ^ (print exc) ^ "\n");
+              flush stderr
            | Invalid_argument x ->
               output_string stderr ("Invalid_argument exception: " ^ x ^ "\n");
               flush stderr
-           | _ ->
-              output_string stderr ("Erroringness!\n");
+           | e ->
+              output_string stderr ((Printexc.to_string e) ^ "\n");
               flush stderr
       done
   with End_of_file -> ()

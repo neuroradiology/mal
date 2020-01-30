@@ -1,5 +1,5 @@
 import re
-from mal_types import (_symbol, _keyword, _list, _vector, _hash_map)
+from mal_types import (_symbol, _keyword, _list, _vector, _hash_map, _s2u, _u)
 
 class Blank(Exception): pass
 
@@ -19,16 +19,21 @@ class Reader():
             return None
 
 def tokenize(str):
-    tre = re.compile(r"""[\s,]*(~@|[\[\]{}()'`~^@]|"(?:[\\].|[^\\"])*"|;.*|[^\s\[\]{}()'"`@,;]+)""");
+    tre = re.compile(r"""[\s,]*(~@|[\[\]{}()'`~^@]|"(?:[\\].|[^\\"])*"?|;.*|[^\s\[\]{}()'"`@,;]+)""");
     return [t for t in re.findall(tre, str) if t[0] != ';']
+
+def _unescape(s):
+    return s.replace('\\\\', _u('\u029e')).replace('\\"', '"').replace('\\n', '\n').replace(_u('\u029e'), '\\')
 
 def read_atom(reader):
     int_re = re.compile(r"-?[0-9]+$")
     float_re = re.compile(r"-?[0-9][0-9.]*$")
+    string_re = re.compile(r'"(?:[\\].|[^\\"])*"')
     token = reader.next()
     if re.match(int_re, token):     return int(token)
     elif re.match(float_re, token): return int(token)
-    elif token[0] == '"':           return token[1:-1].replace('\\"', '"')
+    elif re.match(string_re, token):return _s2u(_unescape(token[1:-1]))
+    elif token[0] == '"':           raise Exception("expected '\"', got EOF")
     elif token[0] == ':':           return _keyword(token[1:])
     elif token == "nil":            return None
     elif token == "true":           return True

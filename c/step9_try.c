@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "types.h"
@@ -26,7 +27,7 @@ MalVal *READ(char prompt[], char *str) {
         }
     }
     ast = read_str(line);
-    if (!str) { free(line); }
+    if (!str) { MAL_GC_FREE(line); }
     return ast;
 }
 
@@ -59,13 +60,13 @@ MalVal *quasiquote(MalVal *ast) {
 }
 
 int is_macro_call(MalVal *ast, Env *env) {
-    if (!ast || ast->type != MAL_LIST) { return 0; }
+    if (!ast || ast->type != MAL_LIST || _count(ast) == 0) { return 0; }
     MalVal *a0 = _nth(ast, 0);
     return (a0->type & MAL_SYMBOL) &&
             env_find(env, a0) &&
             env_get(env, a0)->ismacro;
 }
-    
+
 MalVal *macroexpand(MalVal *ast, Env *env) {
     if (!ast || mal_error) return NULL;
     while (is_macro_call(ast, env)) {
@@ -123,7 +124,9 @@ MalVal *EVAL(MalVal *ast, Env *env) {
     //g_print("EVAL apply list: %s\n", _pr_str(ast,1));
     ast = macroexpand(ast, env);
     if (!ast || mal_error) return NULL;
-    if (ast->type != MAL_LIST) { return ast; }
+    if (ast->type != MAL_LIST) {
+        return eval_ast(ast, env);
+    }
     if (_count(ast) == 0) { return ast; }
 
     int i, len;
@@ -186,8 +189,11 @@ MalVal *EVAL(MalVal *ast, Env *env) {
                strcmp("try*", a0->val.string) == 0) {
         //g_print("eval apply try*\n");
         MalVal *a1 = _nth(ast, 1);
-        MalVal *a2 = _nth(ast, 2);
         MalVal *res = EVAL(a1, env);
+        if (ast->val.array->len < 3) {
+            return &mal_nil;
+        }
+        MalVal *a2 = _nth(ast, 2);
         if (!mal_error) { return res; }
         MalVal *a20 = _nth(a2, 0);
         if (strcmp("catch*", a20->val.string) == 0) {
@@ -260,9 +266,6 @@ MalVal *EVAL(MalVal *ast, Env *env) {
 // print
 char *PRINT(MalVal *exp) {
     if (mal_error) {
-        fprintf(stderr, "Error: %s\n", mal_error->val.string);
-        malval_free(mal_error);
-        mal_error = NULL;
         return NULL;
     }
     return _pr_str(exp,1);
@@ -285,6 +288,8 @@ MalVal *RE(Env *env, char *prompt, char *str) {
 // Setup the initial REPL environment
 Env *repl_env;
 
+MalVal *do_eval(MalVal *ast) { return EVAL(ast, repl_env); }
+
 void init_repl_env(int argc, char *argv[]) {
     repl_env = new_env(NULL, NULL, NULL);
 
@@ -295,7 +300,6 @@ void init_repl_env(int argc, char *argv[]) {
                 malval_new_symbol(core_ns[i].name),
                 malval_new_function(core_ns[i].func, core_ns[i].arg_cnt));
     }
-    MalVal *do_eval(MalVal *ast) { return EVAL(ast, repl_env); }
     env_set(repl_env,
             malval_new_symbol("eval"),
             malval_new_function((void*(*)(void *))do_eval, 1));
@@ -310,9 +314,8 @@ void init_repl_env(int argc, char *argv[]) {
     // core.mal: defined using the language itself
     RE(repl_env, "", "(def! not (fn* (a) (if a false true)))");
     RE(repl_env, "",
-       "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))");
+       "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))");
     RE(repl_env, "", "(defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw \"odd number of forms to cond\")) (cons 'cond (rest (rest xs)))))))");
-    RE(repl_env, "", "(defmacro! or (fn* (& xs) (if (empty? xs) nil (if (= 1 (count xs)) (first xs) `(let* (or_FIXME ~(first xs)) (if or_FIXME or_FIXME (or ~@(rest xs))))))))");
 }
 
 int main(int argc, char *argv[])
@@ -321,10 +324,12 @@ int main(int argc, char *argv[])
     char *output;
     char prompt[100];
 
+    MAL_GC_SETUP();
+
     // Set the initial prompt and environment
     snprintf(prompt, sizeof(prompt), "user> ");
     init_repl_env(argc, argv);
- 
+
     if (argc > 1) {
         char *cmd = g_strdup_printf("(load-file \"%s\")", argv[1]);
         RE(repl_env, "", cmd);
@@ -339,9 +344,13 @@ int main(int argc, char *argv[])
         }
         output = PRINT(exp);
 
-        if (output) { 
-            g_print("%s\n", output);
-            free(output);        // Free output string
+        if (mal_error) {
+            fprintf(stderr, "Error: %s\n", _pr_str(mal_error,1));
+            malval_free(mal_error);
+            mal_error = NULL;
+        } else if (output) {
+            puts(output);
+            MAL_GC_FREE(output);        // Free output string
         }
 
         //malval_free(exp);    // Free evaluated expression

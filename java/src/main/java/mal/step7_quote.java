@@ -30,12 +30,12 @@ public class step7_quote {
         } else {
             MalVal a0 = ((MalList)ast).nth(0);
             if ((a0 instanceof MalSymbol) &&
-                (((MalSymbol)a0).getName() == "unquote")) {
+                (((MalSymbol)a0).getName().equals("unquote"))) {
                 return ((MalList)ast).nth(1);
             } else if (is_pair(a0)) {
                 MalVal a00 = ((MalList)a0).nth(0);
                 if ((a00 instanceof MalSymbol) &&
-                    (((MalSymbol)a00).getName() == "splice-unquote")) {
+                    (((MalSymbol)a00).getName().equals("splice-unquote"))) {
                     return new MalList(new MalSymbol("concat"),
                                        ((MalList)a0).nth(1),
                                        quasiquote(((MalList)ast).rest()));
@@ -190,7 +190,7 @@ public class step7_quote {
 
         // core.mal: defined using the language itself
         RE(repl_env, "(def! not (fn* (a) (if a false true)))");
-        RE(repl_env, "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))");
+        RE(repl_env, "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))");
         
         Integer fileIdx = 0;
         if (args.length > 0 && args[0].equals("--raw")) {

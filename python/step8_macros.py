@@ -37,7 +37,7 @@ def is_macro_call(ast, env):
 def macroexpand(ast, env):
     while is_macro_call(ast, env):
         mac = env.get(ast[0])
-        ast = macroexpand(mac(*ast[1:]), env)
+        ast = mac(*ast[1:])
     return ast
 
 def eval_ast(ast, env):
@@ -64,7 +64,8 @@ def EVAL(ast, env):
 
         # apply list
         ast = macroexpand(ast, env)
-        if not types._list_Q(ast): return ast
+        if not types._list_Q(ast):
+            return eval_ast(ast, env)
         if len(ast) == 0: return ast
         a0 = ast[0]
 
@@ -86,7 +87,7 @@ def EVAL(ast, env):
             ast = quasiquote(ast[1]);
             # Continue loop (TCO)
         elif 'defmacro!' == a0:
-            func = EVAL(ast[2], env)
+            func = types._clone(EVAL(ast[2], env))
             func._ismacro_ = True
             return env.set(ast[1], func)
         elif 'macroexpand' == a0:
@@ -132,9 +133,8 @@ repl_env.set(types._symbol('*ARGV*'), types._list(*sys.argv[2:]))
 
 # core.mal: defined using the language itself
 REP("(def! not (fn* (a) (if a false true)))")
-REP("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))")
+REP("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))")
 REP("(defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw \"odd number of forms to cond\")) (cons 'cond (rest (rest xs)))))))")
-REP("(defmacro! or (fn* (& xs) (if (empty? xs) nil (if (= 1 (count xs)) (first xs) `(let* (or_FIXME ~(first xs)) (if or_FIXME or_FIXME (or ~@(rest xs))))))))")
 
 if len(sys.argv) >= 2:
     REP('(load-file "' + sys.argv[1] + '")')

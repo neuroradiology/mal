@@ -80,7 +80,12 @@ function MAL_EVAL($ast, $env) {
 
     // apply list
     $ast = macroexpand($ast, $env);
-    if (!_list_Q($ast)) { return $ast; }
+    if (!_list_Q($ast)) {
+        return eval_ast($ast, $env);
+    }
+    if ($ast->count() === 0) {
+        return $ast;
+    }
 
     $a0 = $ast[0];
     $a0v = (_symbol_Q($a0) ? $a0->value : $a0);
@@ -142,7 +147,7 @@ function MAL_EVAL($ast, $env) {
 
 // print
 function MAL_PRINT($exp) {
-    return _pr_str($exp, True) . "\n";
+    return _pr_str($exp, True);
 }
 
 // repl
@@ -167,9 +172,8 @@ $repl_env->set(_symbol('*ARGV*'), $_argv);
 
 // core.mal: defined using the language itself
 rep("(def! not (fn* (a) (if a false true)))");
-rep("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))");
+rep("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))");
 rep("(defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw \"odd number of forms to cond\")) (cons 'cond (rest (rest xs)))))))");
-rep("(defmacro! or (fn* (& xs) (if (empty? xs) nil (if (= 1 (count xs)) (first xs) `(let* (or_FIXME ~(first xs)) (if or_FIXME or_FIXME (or ~@(rest xs))))))))");
 
 if (count($argv) > 1) {
     rep('(load-file "' . $argv[1] . '")');
@@ -182,7 +186,7 @@ do {
         $line = mal_readline("user> ");
         if ($line === NULL) { break; }
         if ($line !== "") {
-            print(rep($line));
+            print(rep($line) . "\n");
         }
     } catch (BlankException $e) {
         continue;

@@ -108,7 +108,9 @@ namespace Mal {
 
             // apply list
             MalVal expanded = macroexpand(orig_ast, env);
-            if (!expanded.list_Q()) { return expanded; } 
+            if (!expanded.list_Q()) {
+                return eval_ast(expanded, env);
+            } 
             MalList ast = (MalList) expanded;
 
             if (ast.size() == 0) { return ast; }
@@ -210,22 +212,21 @@ namespace Mal {
             }
             repl_env.set(new MalSymbol("eval"), new MalFunc(
                         a => EVAL(a[0], repl_env)));
-            int fileIdx = 1;
+            int fileIdx = 0;
             if (args.Length > 0 && args[0] == "--raw") {
                 Mal.readline.mode = Mal.readline.Mode.Raw;
-                fileIdx = 2;
+                fileIdx = 1;
             }
             MalList _argv = new MalList();
-            for (int i=fileIdx; i < args.Length; i++) {
+            for (int i=fileIdx+1; i < args.Length; i++) {
                 _argv.conj_BANG(new MalString(args[i]));
             }
             repl_env.set(new MalSymbol("*ARGV*"), _argv);
 
             // core.mal: defined using the language itself
             RE("(def! not (fn* (a) (if a false true)))");
-            RE("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))");
+            RE("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))");
             RE("(defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw \"odd number of forms to cond\")) (cons 'cond (rest (rest xs)))))))");
-            RE("(defmacro! or (fn* (& xs) (if (empty? xs) nil (if (= 1 (count xs)) (first xs) `(let* (or_FIXME ~(first xs)) (if or_FIXME or_FIXME (or ~@(rest xs))))))))");
 
             if (args.Length > fileIdx) {
                 RE("(load-file \"" + args[fileIdx] + "\")");

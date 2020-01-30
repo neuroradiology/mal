@@ -14,14 +14,12 @@ let rec quasiquote ast =
        Types.list [Types.symbol "cons"; quasiquote head; quasiquote (Types.list tail) ]
     | ast -> Types.list [Types.symbol "quote"; ast]
 
-let kw_macro = T.Keyword "macro"
-
 let is_macro_call ast env =
   match ast with
   | T.List { T.value = s :: args } ->
      (match (try Env.get env s with _ -> T.Nil) with
       | T.Fn { T.meta = T.Map { T.value = meta } }
-        -> Types.MalMap.mem kw_macro meta && Types.to_bool (Types.MalMap.find kw_macro meta)
+        -> Types.MalMap.mem Core.kw_macro meta && Types.to_bool (Types.MalMap.find Core.kw_macro meta)
       | _ -> false)
   | _ -> false
 
@@ -54,13 +52,14 @@ let rec eval_ast ast env =
     | _ -> ast
 and eval ast env =
   match macroexpand ast env with
+    | T.List { T.value = [] } -> ast
     | T.List { T.value = [(T.Symbol { T.value = "def!" }); key; expr] } ->
         let value = (eval expr env) in
           Env.set env key value; value
     | T.List { T.value = [(T.Symbol { T.value = "defmacro!" }); key; expr] } ->
        (match (eval expr env) with
           | T.Fn { T.value = f; T.meta = meta } ->
-             let fn = T.Fn { T.value = f; meta = Core.assoc [meta; kw_macro; (T.Bool true)]}
+             let fn = T.Fn { T.value = f; meta = Core.assoc [meta; Core.kw_macro; (T.Bool true)]}
              in Env.set env key fn; fn
           | _ -> raise (Invalid_argument "defmacro! value must be a fn"))
     | T.List { T.value = [(T.Symbol { T.value = "let*" }); (T.Vector { T.value = bindings }); body] }
@@ -120,10 +119,9 @@ let rec main =
     Env.set repl_env (Types.symbol "eval")
             (Types.fn (function [ast] -> eval ast repl_env | _ -> T.Nil));
 
-    ignore (rep "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))" repl_env);
+    ignore (rep "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))" repl_env);
     ignore (rep "(def! not (fn* (a) (if a false true)))" repl_env);
     ignore (rep "(defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw \"odd number of forms to cond\")) (cons 'cond (rest (rest xs)))))))" repl_env);
-    ignore (rep "(defmacro! or (fn* (& xs) (if (empty? xs) nil (if (= 1 (count xs)) (first xs) `(let* (or_FIXME ~(first xs)) (if or_FIXME or_FIXME (or ~@(rest xs))))))))" repl_env);
 
     if Array.length Sys.argv > 1 then
       ignore (rep ("(load-file \"" ^ Sys.argv.(1) ^ "\")") repl_env)

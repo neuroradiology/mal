@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "types.h"
@@ -23,7 +24,7 @@ MalVal *READ(char prompt[], char *str) {
         }
     }
     ast = read_str(line);
-    if (!str) { free(line); }
+    if (!str) { MAL_GC_FREE(line); }
     return ast;
 }
 
@@ -33,7 +34,9 @@ MalVal *eval_ast(MalVal *ast, GHashTable *env) {
     if (ast->type == MAL_SYMBOL) {
         //g_print("EVAL symbol: %s\n", ast->val.string);
         // TODO: check if not found
-        return g_hash_table_lookup(env, ast->val.string);
+        MalVal *res = g_hash_table_lookup(env, ast->val.string);
+        assert(res, "'%s' not found", ast->val.string);
+        return res;
     } else if ((ast->type == MAL_LIST) || (ast->type == MAL_VECTOR)) {
         //g_print("EVAL sequential: %s\n", _pr_str(ast,1));
         MalVal *el = _map2((MalVal *(*)(void*, void*))EVAL, ast, env);
@@ -84,9 +87,6 @@ MalVal *EVAL(MalVal *ast, GHashTable *env) {
 // print
 char *PRINT(MalVal *exp) {
     if (mal_error) {
-        fprintf(stderr, "Error: %s\n", mal_error->val.string);
-        malval_free(mal_error);
-        mal_error = NULL;
         return NULL;
     }
     return _pr_str(exp,1);
@@ -109,14 +109,13 @@ MalVal *RE(GHashTable *env, char *prompt, char *str) {
 // Setup the initial REPL environment
 GHashTable *repl_env;
 
+WRAP_INTEGER_OP(plus,+)
+WRAP_INTEGER_OP(minus,-)
+WRAP_INTEGER_OP(multiply,*)
+WRAP_INTEGER_OP(divide,/)
 
 void init_repl_env() {
     repl_env = g_hash_table_new(g_str_hash, g_str_equal);
-
-    WRAP_INTEGER_OP(plus,+)
-    WRAP_INTEGER_OP(minus,-)
-    WRAP_INTEGER_OP(multiply,*)
-    WRAP_INTEGER_OP(divide,/)
 
     g_hash_table_insert(repl_env, "+", int_plus);
     g_hash_table_insert(repl_env, "-", int_minus);
@@ -130,10 +129,12 @@ int main()
     char *output;
     char prompt[100];
 
+    MAL_GC_SETUP();
+
     // Set the initial prompt and environment
     snprintf(prompt, sizeof(prompt), "user> ");
     init_repl_env();
- 
+
     // repl loop
     for(;;) {
         exp = RE(repl_env, prompt, NULL);
@@ -142,9 +143,13 @@ int main()
         }
         output = PRINT(exp);
 
-        if (output) { 
-            g_print("%s\n", output);
-            free(output);        // Free output string
+        if (mal_error) {
+            fprintf(stderr, "Error: %s\n", _pr_str(mal_error,1));
+            malval_free(mal_error);
+            mal_error = NULL;
+        } else if (output) {
+            puts(output);
+            MAL_GC_FREE(output);        // Free output string
         }
 
         //malval_free(exp);    // Free evaluated expression

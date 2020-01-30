@@ -2,6 +2,7 @@
 
 local readline = require('readline')
 local utils = require('utils')
+local types = require('types')
 local reader = require('reader')
 local printer = require('printer')
 
@@ -23,6 +24,10 @@ end
 -- repl
 function rep(str)
     return PRINT(EVAL(READ(str),""))
+end
+
+if #arg > 0 and arg[1] == "--raw" then
+    readline.raw = true
 end
 
 while true do

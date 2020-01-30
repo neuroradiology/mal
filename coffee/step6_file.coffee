@@ -24,6 +24,7 @@ EVAL = (ast, env) ->
  loop
   #console.log "EVAL:", printer._pr_str ast
   if !types._list_Q ast then return eval_ast ast, env
+  if ast.length == 0 then return ast
 
   # apply list
   [a0, a1, a2, a3] = ast
@@ -70,7 +71,7 @@ repl_env.set types._symbol('*ARGV*'), []
 
 # core.mal: defined using the language itself
 rep("(def! not (fn* (a) (if a false true)))");
-rep("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))");
+rep("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))");
 
 if process? && process.argv.length > 2
   repl_env.set types._symbol('*ARGV*'), process.argv[3..]
@@ -84,7 +85,9 @@ while (line = readline.readline("user> ")) != null
     console.log rep line
   catch exc
     continue if exc instanceof reader.BlankException
-    if exc.stack then console.log exc.stack
-    else              console.log exc
+    if exc.stack? and exc.stack.length > 2000
+      console.log exc.stack.slice(0,1000) + "\n  ..." + exc.stack.slice(-1000)
+    else if exc.stack? then console.log exc.stack
+    else                    console.log exc
 
 # vim: ts=2:sw=2

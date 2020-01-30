@@ -1,32 +1,22 @@
-
-TESTS =
-
-
 SOURCES_BASE = mal_readline.py mal_types.py reader.py printer.py
-SOURCES_LISP = env.py core.py stepA_interop.py
+SOURCES_LISP = env.py core.py stepA_mal.py
 SOURCES = $(SOURCES_BASE) $(SOURCES_LISP)
 
+all:
+	true
 
-#all: mal.sh
-#
-#mal.sh: $(SOURCES)
-#	cat $+ > $@
-#	echo "#!/bin/bash" > $@
-#	cat $+ | grep -v "^source " >> $@
-#	chmod +x $@
-#
-#clean:
-#	rm -f mal.sh
+dist: mal.pyz mal
 
-.PHONY: stats tests $(TESTS)
+SHELL := bash
+mal.pyz: $(SOURCES)
+	cp stepA_mal.py __main__.py
+	zip -q - __main__.py $+ > $@
+	rm __main__.py
 
-stats: $(SOURCES)
-	@wc $^
-stats-lisp: $(SOURCES_LISP)
-	@wc $^
+mal: mal.pyz
+	echo '#!/usr/bin/env python' > $@
+	cat $< >> $@
+	chmod +x $@
 
-tests: $(TESTS)
-
-$(TESTS):
-	@echo "Running $@"; \
-	python $@ || exit 1; \
+clean:
+	rm -f mal.pyz mal

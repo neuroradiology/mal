@@ -1,56 +1,45 @@
 package printer;
 use strict;
-use warnings FATAL => qw(all);
-no if $] >= 5.018, warnings => "experimental::smartmatch";
-use feature qw(switch);
+use warnings;
+
 use Exporter 'import';
 our @EXPORT_OK = qw( _pr_str );
 
-use types qw($nil $true $false);
+use types qw(thaw_key $nil $true $false);
 
 use Data::Dumper;
+use List::Util qw(pairmap);
 
 sub _pr_str {
     my($obj, $print_readably) = @_;
-    my($_r) = (defined $print_readably) ? $print_readably : 1;
-    given (ref $obj) {
-        when(/^List/) {
-            return '(' . join(' ', map {_pr_str($_, $_r)} @{$obj->{val}}) . ')';
-        }
-        when(/^Vector/) {
-            return '[' . join(' ', map {_pr_str($_, $_r)} @{$obj->{val}}) . ']';
-        }
-        when(/^HashMap/) {
-            my @elems = ();
-            foreach my $key (keys $obj->{val}) {
-                push(@elems, _pr_str(String->new($key), $_r));
-                push(@elems, _pr_str($obj->{val}->{$key}, $_r));
-            }
-
-            return '{' . join(' ', @elems) . '}';
-        }
-        when(/^String/) {
-            if ($$obj =~ /^\x{029e}/) {
-                return ':' . substr($$obj,1);
-            } elsif ($_r) {
-                my $str = $$obj;
-                $str =~ s/\\/\\\\/g;
-                $str =~ s/"/\\"/g;
-                $str =~ s/\n/\\n/g;
-                return '"' . $str . '"';
-            } else {
-                return $$obj;
-            }
-        }
-        when(/^Function/) {
-            return '<fn* ' . _pr_str($obj->{params}) .
-                   ' ' . _pr_str($obj->{ast}) . '>';
-        }
-        when(/^Atom/) {
-            return '(atom ' . _pr_str($obj->{val}) . ")";
-        }
-        when(/^CODE/)   { return '<builtin_fn* ' . $obj . '>'; }
-        default         { return $$obj; }
+    my($_r) = $print_readably // 1;
+    if ($obj->isa('Mal::List')) {
+	return '(' . join(' ', map { _pr_str($_, $_r) } @$obj) . ')';
+    } elsif ($obj->isa('Mal::Vector')) {
+	return '[' . join(' ', map { _pr_str($_, $_r) } @$obj) . ']';
+    } elsif ($obj->isa('Mal::HashMap')) {
+	return '{' . join(' ', pairmap { _pr_str(thaw_key($a), $_r) =>
+				         _pr_str($b, $_r) } %$obj) . '}';
+    } elsif ($obj->isa('Mal::Keyword')) {
+	return ":$$obj";
+    } elsif ($obj->isa('Mal::String')) {
+	if ($_r) {
+	    my $str = $$obj;
+	    $str =~ s/\\/\\\\/g;
+	    $str =~ s/"/\\"/g;
+	    $str =~ s/\n/\\n/g;
+	    return qq'"$str"';
+	} else {
+	    return $$obj;
+	}
+    } elsif ($obj->isa('Mal::Atom')) {
+	return '(atom ' . _pr_str($$obj) . ")";
+    } elsif ($obj->isa('Mal::Function')) {
+        return "<fn* $obj>";
+    } elsif ($obj->isa('Mal::Macro')) {
+        return "<macro* $obj>";
+    } else {
+        return $$obj;
     }
 }
 

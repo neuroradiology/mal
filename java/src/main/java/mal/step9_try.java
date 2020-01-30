@@ -32,12 +32,12 @@ public class step9_try {
         } else {
             MalVal a0 = ((MalList)ast).nth(0);
             if ((a0 instanceof MalSymbol) &&
-                (((MalSymbol)a0).getName() == "unquote")) {
+                (((MalSymbol)a0).getName().equals("unquote"))) {
                 return ((MalList)ast).nth(1);
             } else if (is_pair(a0)) {
                 MalVal a00 = ((MalList)a0).nth(0);
                 if ((a00 instanceof MalSymbol) &&
-                    (((MalSymbol)a00).getName() == "splice-unquote")) {
+                    (((MalSymbol)a00).getName().equals("splice-unquote"))) {
                     return new MalList(new MalSymbol("concat"),
                                        ((MalList)a0).nth(1),
                                        quasiquote(((MalList)ast).rest()));
@@ -109,10 +109,13 @@ public class step9_try {
         if (!orig_ast.list_Q()) {
             return eval_ast(orig_ast, env);
         }
+        if (((MalList)orig_ast).size() == 0) { return orig_ast; }
 
         // apply list
         MalVal expanded = macroexpand(orig_ast, env);
-        if (!expanded.list_Q()) { return expanded; } 
+        if (!expanded.list_Q()) {
+            return eval_ast(expanded, env);
+        }
         MalList ast = (MalList) expanded;
         if (ast.size() == 0) { return ast; }
         a0 = ast.nth(0);
@@ -254,9 +257,8 @@ public class step9_try {
 
         // core.mal: defined using the language itself
         RE(repl_env, "(def! not (fn* (a) (if a false true)))");
-        RE(repl_env, "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))");
+        RE(repl_env, "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))");
         RE(repl_env, "(defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw \"odd number of forms to cond\")) (cons 'cond (rest (rest xs)))))))");
-        RE(repl_env, "(defmacro! or (fn* (& xs) (if (empty? xs) nil (if (= 1 (count xs)) (first xs) `(let* (or_FIXME ~(first xs)) (if or_FIXME or_FIXME (or ~@(rest xs))))))))");
         
         Integer fileIdx = 0;
         if (args.length > 0 && args[0].equals("--raw")) {

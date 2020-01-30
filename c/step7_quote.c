@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "types.h"
@@ -24,7 +25,7 @@ MalVal *READ(char prompt[], char *str) {
         }
     }
     ast = read_str(line);
-    if (!str) { free(line); }
+    if (!str) { MAL_GC_FREE(line); }
     return ast;
 }
 
@@ -198,9 +199,6 @@ MalVal *EVAL(MalVal *ast, Env *env) {
 // print
 char *PRINT(MalVal *exp) {
     if (mal_error) {
-        fprintf(stderr, "Error: %s\n", mal_error->val.string);
-        malval_free(mal_error);
-        mal_error = NULL;
         return NULL;
     }
     return _pr_str(exp,1);
@@ -223,6 +221,8 @@ MalVal *RE(Env *env, char *prompt, char *str) {
 // Setup the initial REPL environment
 Env *repl_env;
 
+MalVal *do_eval(MalVal *ast) { return EVAL(ast, repl_env); }
+
 void init_repl_env(int argc, char *argv[]) {
     repl_env = new_env(NULL, NULL, NULL);
 
@@ -233,7 +233,6 @@ void init_repl_env(int argc, char *argv[]) {
                 malval_new_symbol(core_ns[i].name),
                 malval_new_function(core_ns[i].func, core_ns[i].arg_cnt));
     }
-    MalVal *do_eval(MalVal *ast) { return EVAL(ast, repl_env); }
     env_set(repl_env,
             malval_new_symbol("eval"),
             malval_new_function((void*(*)(void *))do_eval, 1));
@@ -248,7 +247,7 @@ void init_repl_env(int argc, char *argv[]) {
     // core.mal: defined using the language itself
     RE(repl_env, "", "(def! not (fn* (a) (if a false true)))");
     RE(repl_env, "",
-       "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))");
+       "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))");
 }
 
 int main(int argc, char *argv[])
@@ -257,10 +256,12 @@ int main(int argc, char *argv[])
     char *output;
     char prompt[100];
 
+    MAL_GC_SETUP();
+
     // Set the initial prompt and environment
     snprintf(prompt, sizeof(prompt), "user> ");
     init_repl_env(argc, argv);
- 
+
     if (argc > 1) {
         char *cmd = g_strdup_printf("(load-file \"%s\")", argv[1]);
         RE(repl_env, "", cmd);
@@ -275,9 +276,13 @@ int main(int argc, char *argv[])
         }
         output = PRINT(exp);
 
-        if (output) { 
-            g_print("%s\n", output);
-            free(output);        // Free output string
+        if (mal_error) {
+            fprintf(stderr, "Error: %s\n", _pr_str(mal_error,1));
+            malval_free(mal_error);
+            mal_error = NULL;
+        } else if (output) {
+            puts(output);
+            MAL_GC_FREE(output);        // Free output string
         }
 
         //malval_free(exp);    // Free evaluated expression

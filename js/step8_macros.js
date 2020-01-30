@@ -20,7 +20,7 @@ function is_pair(x) {
 function quasiquote(ast) {
     if (!is_pair(ast)) {
         return [types._symbol("quote"), ast];
-    } else if (ast[0].value === 'unquote') {
+    } else if (types._symbol_Q(ast[0]) && ast[0].value === 'unquote') {
         return ast[1];
     } else if (is_pair(ast[0]) && ast[0][0].value === 'splice-unquote') {
         return [types._symbol("concat"),
@@ -78,7 +78,12 @@ function _EVAL(ast, env) {
 
     // apply list
     ast = macroexpand(ast, env);
-    if (!types._list_Q(ast)) { return ast; }
+    if (!types._list_Q(ast)) {
+        return eval_ast(ast, env);
+    }
+    if (ast.length === 0) {
+        return ast;
+    }
 
     var a0 = ast[0], a1 = ast[1], a2 = ast[2], a3 = ast[3];
     switch (a0.value) {
@@ -99,7 +104,7 @@ function _EVAL(ast, env) {
         ast = quasiquote(a1);
         break;
     case 'defmacro!':
-        var func = EVAL(a2, env);
+        var func = types._clone(EVAL(a2, env));
         func._ismacro_ = true;
         return env.set(a1, func);
     case 'macroexpand':
@@ -153,9 +158,8 @@ repl_env.set(types._symbol('*ARGV*'), []);
 
 // core.mal: defined using the language itself
 rep("(def! not (fn* (a) (if a false true)))");
-rep("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))");
+rep("(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))");
 rep("(defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw \"odd number of forms to cond\")) (cons 'cond (rest (rest xs)))))))");
-rep("(defmacro! or (fn* (& xs) (if (empty? xs) nil (if (= 1 (count xs)) (first xs) `(let* (or_FIXME ~(first xs)) (if or_FIXME or_FIXME (or ~@(rest xs))))))))");
 
 if (typeof process !== 'undefined' && process.argv.length > 2) {
     repl_env.set(types._symbol('*ARGV*'), process.argv.slice(3));
@@ -172,9 +176,9 @@ if (typeof require !== 'undefined' && require.main === module) {
         try {
             if (line) { printer.println(rep(line)); }
         } catch (exc) {
-            if (exc instanceof reader.BlankException) { continue; }
-            if (exc.stack) { printer.println(exc.stack); }
-            else           { printer.println(exc); }
+            if (exc instanceof reader.BlankException) { continue }
+            if (exc instanceof Error) { console.warn(exc.stack) }
+            else { console.warn("Error: " + printer._pr_str(exc, true)) }
         }
     }
 }

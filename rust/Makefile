@@ -1,33 +1,31 @@
-#####################
 
-SOURCES_BASE = src/types.rs src/readline.rs \
-	       src/reader.rs src/printer.rs \
-	       src/env.rs src/core.rs
-SOURCES_LISP = src/env.rs src/core.rs src/stepA_interop.rs
-SOURCES = $(SOURCES_BASE) $(SOURCES_LISP)
+UPPER_STEPS = step4_if_fn_do step5_tco step6_file step7_quote step8_macros step9_try stepA_mal
+STEPS = step0_repl step1_read_print step2_eval step3_env $(UPPER_STEPS)
 
-#####################
+all: $(STEPS)
 
-SRCS = step0_repl.rs step1_read_print.rs step2_eval.rs step3_env.rs \
-       step4_if_fn_do.rs step5_tco.rs step6_file.rs step7_quote.rs \
-       step8_macros.rs step9_try.rs stepA_interop.rs
-BINS = $(SRCS:%.rs=target/%)
+dist: mal
 
-#####################
+mal: stepA_mal
+	cp $< $@
 
-all: $(BINS) mal
+%: %.rs
+	cargo build --release --bin $*
+	cp target/release/$* $@
 
-mal: ${SOURCES_BASE} $(word $(words ${SOURCES_LISP}),${SOURCES_LISP})
-	cargo build
-	cp $(word $(words ${BINS}),${BINS})  $@
+STEP0_DEPS = Cargo.toml
+STEP1_DEPS = $(STEP0_DEPS) types.rs reader.rs printer.rs
+STEP3_DEPS = $(STEP1_DEPS) env.rs
+STEP4_DEPS = $(STEP3_DEPS) core.rs
+
+step0_repl: $(STEP0_DEPS)
+step1_read_print step2_eval: $(STEP1_DEPS)
+step3_env: $(STEP3_DEPS)
+$(UPPER_STEPS): $(STEP4_DEPS)
+
+.PHONY: clean
 
 clean:
 	cargo clean
+	rm -f $(STEPS)
 	rm -f mal
-
-.PHONY: stats stats-lisp
-
-stats: $(SOURCES)
-	@wc $^
-stats-lisp: $(SOURCES_LISP)
-	@wc $^

@@ -17,12 +17,21 @@ function M._equal_Q(a,b)
             if not M._equal_Q(v,b[i]) then return false end
         end
         return true
+    elseif M._hash_map_Q(a) and M._hash_map_Q(b) then
+        if #a ~= #b then return false end
+        for k, v in pairs(a) do
+            if not M._equal_Q(v,b[k]) then return false end
+        end
+        return true
     else
         return a == b
     end
 end
 
 function M.copy(obj)
+    if type(obj) == "function" then
+        return M.FunctionRef:new(obj)
+    end
     if type(obj) ~= "table" then return obj end
 
     -- copy object data
@@ -83,6 +92,11 @@ end
 M.Nil = NilType:new()
 function M._nil_Q(obj)
     return obj == Nil
+end
+
+-- Numbers
+function M._number_Q(obj)
+    return type(obj) == "number"
 end
 
 -- Strings
@@ -147,18 +161,20 @@ function M.HashMap:new(val)
     return setmetatable(newObj, self)
 end
 function M.hash_map(...)
-    return M._assoc_BANG(M.HashMap:new(), unpack(arg))
+    return M._assoc_BANG(M.HashMap:new(), ...)
 end
 function M._hash_map_Q(obj)
     return utils.instanceOf(obj, M.HashMap)
 end
 function M._assoc_BANG(hm, ...)
+    local arg = table.pack(...)
     for i = 1, #arg, 2 do
         hm[arg[i]] = arg[i+1]
     end
     return hm
 end
 function M._dissoc_BANG(hm, ...)
+    local arg = table.pack(...)
     for i = 1, #arg do
         hm[arg[i]] = nil
     end
@@ -177,6 +193,12 @@ end
 function M._malfunc_Q(obj)
     return utils.instanceOf(obj, M.MalFunc)
 end
+function M._fn_Q(obj)
+    return type(obj) == "function" or (M._malfunc_Q(obj) and not obj.ismacro)
+end
+function M._macro_Q(obj)
+    return M._malfunc_Q(obj) and obj.ismacro
+end
 
 -- Atoms
 
@@ -188,6 +210,20 @@ function M.Atom:new(val)
 end
 function M._atom_Q(obj)
     return utils.instanceOf(obj, M.Atom)
+end
+
+-- FunctionRefs
+
+M.FunctionRef = {}
+function M.FunctionRef:new(fn)
+    local newObj = {fn = fn}
+    return setmetatable(newObj, self)
+end
+function M._functionref_Q(obj)
+    return utils.instanceOf(obj, M.FunctionRef)
+end
+function M.FunctionRef:__call(...)
+    return self.fn(...)
 end
 
 return M

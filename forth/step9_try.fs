@@ -188,8 +188,8 @@ s" &" MalSymbol. constant &-sym
 
     f-args-list MalList/start @ { f-args }
     f-args-list MalList/count @ ?dup 0= if else
-        \ pass nil for last arg, unless overridden below
-        1- cells f-args + @ mal-nil env env/set
+        \ pass empty list for last arg, unless overridden below
+        1- cells f-args + @ MalList new env env/set
     endif
     argc 0 ?do
         f-args i cells + @
@@ -245,20 +245,24 @@ defspecial macroexpand ( env list[_,form] -- form )
 
 defspecial try* { env list -- val }
     list MalList/start @ cell+ { arg0 }
-    pre-try
-    env arg0 @ ['] eval catch ?dup 0= if
-        nip
-    else { errno }
-        begin pre-try = until
-        errno 1 <> if
-            s" forth-errno" MalKeyword. errno MalInt. MalMap/Empty assoc
-            to exception-object
+    list MalList/count @ 3 < if
+        env arg0 @ eval
+    else
+        pre-try
+        env arg0 @ ['] eval catch ?dup 0= if
+            nip
+        else { errno }
+            begin pre-try = until
+            errno 1 <> if
+                s" forth-errno" MalKeyword. errno MalInt. MalMap/Empty assoc
+                to exception-object
+            endif
+            arg0 cell+ @ ( list[catch*,sym,form] )
+            MalList/start @ cell+ { catch0 }
+            env MalEnv. { catch-env }
+            catch0 @ exception-object catch-env env/set
+            catch-env  catch0 cell+ @  TCO-eval
         endif
-        arg0 cell+ @ ( list[catch*,sym,form] )
-        MalList/start @ cell+ { catch0 }
-        env MalEnv. { catch-env }
-        catch0 @ exception-object catch-env env/set
-        catch-env  catch0 cell+ @  TCO-eval
     endif ;;
 
 MalSymbol
@@ -282,8 +286,12 @@ drop
 
 MalList
   extend mal-eval { env list -- val }
-    env list MalList/start @ @ eval
-    env list rot eval-invoke ;;
+    list MalList/count @ 0= if
+        list
+    else
+        env list MalList/start @ @ eval
+        env list rot eval-invoke
+    endif ;;
 drop
 
 MalVector
@@ -319,6 +327,19 @@ create buff 128 allot
 
 : nop ;
 
+defcore swap! { argv argc -- val }
+    \ argv is  (atom fn args...)
+    argv @ { atom }
+    argv cell+ @ { fn }
+    argc 1- { call-argc }
+    call-argc cells allocate throw { call-argv }
+    atom Atom/val   call-argv    1 cells   cmove
+    argv cell+ cell+   call-argv cell+   call-argc 1- cells   cmove
+    call-argv call-argc fn  invoke
+    dup TCO-eval = if drop eval endif { new-val }
+    new-val atom Atom/val !
+    new-val ;;
+
 defcore map ( argv argc -- list )
     drop dup @ swap cell+ @ to-list { fn list }
     here
@@ -329,15 +350,9 @@ defcore map ( argv argc -- list )
     cell +loop
     here>MalList ;;
 
-defcore readline ( argv argc -- mal-string )
-    drop @ unpack-str type stdout flush-file drop
-    buff 128 stdin read-line throw
-    if buff swap MalString. else drop mal-nil endif ;;
-
-s\" (def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \")\")))))" rep 2drop
+s\" (def! not (fn* (x) (if x false true)))" rep 2drop
+s\" (def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))" rep 2drop
 s\" (defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw \"odd number of forms to cond\")) (cons 'cond (rest (rest xs)))))))" rep 2drop
-s\" (defmacro! or (fn* (& xs) (if (empty? xs) nil (if (= 1 (count xs)) (first xs) `(let* (or_FIXME ~(first xs)) (if or_FIXME or_FIXME (or ~@(rest xs))))))))" rep 2drop
-s\" (def! swap! (fn* [a f & args] (reset! a (apply f @a args))))" rep 2drop
 
 : repl ( -- )
     begin
@@ -345,20 +360,22 @@ s\" (def! swap! (fn* [a f & args] (reset! a (apply f @a args))))" rep 2drop
       stack-leak-detect
       buff 128 stdin read-line throw
     while ( num-bytes-read )
-      buff swap ( str-addr str-len )
-      ['] rep
-      \ execute ['] nop \ uncomment to see stack traces
-      catch ?dup 0= if
-          safe-type cr
-          stack-leak-detect <> if ." --stack leak--" cr endif
-      else { errno }
-          begin stack-leak-detect = until
-          errno 1 <> if
-              s" forth-errno" MalKeyword. errno MalInt. MalMap/Empty assoc
-              to exception-object
-          endif
-          ." Uncaught exception: "
-          exception-object pr-str safe-type cr
+      dup 0 <> if
+        buff swap ( str-addr str-len )
+        ['] rep
+        \ execute ['] nop \ uncomment to see stack traces
+        catch ?dup 0= if
+            safe-type cr
+            stack-leak-detect <> if ." --stack leak--" cr endif
+        else { errno }
+            begin stack-leak-detect = until
+            errno 1 <> if
+                s" forth-errno" MalKeyword. errno MalInt. MalMap/Empty assoc
+                to exception-object
+            endif
+            ." Uncaught exception: "
+            exception-object pr-str safe-type cr
+        endif
       endif
     repeat ;
 

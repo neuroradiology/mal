@@ -6,7 +6,7 @@
 (core.ps) runlibfile
 
 % read
-/_readline { print flush (%stdin) (r) file 99 string readline } def
+/_readline { print flush (%stdin) (r) file 1024 string readline } def
 
 /READ {
     /str exch def
@@ -108,10 +108,12 @@ end } def
     }{ %else apply the list
       /ast ast env macroexpand def
       ast _list? not { %if no longer a list
-          ast
+          ast env eval_ast
       }{ %else still a list
         /a0 ast 0 _nth def
-        /def! a0 eq { %if def!
+        a0 _nil? { %if ()
+            ast
+        }{ /def! a0 eq { %if def!
             /a1 ast 1 _nth def
             /a2 ast 2 _nth def
             env a1  a2 env EVAL  env_set
@@ -152,41 +154,45 @@ end } def
             env
             /loop? true def % loop
         }{ /try* a0 eq { %if try*
-            { %try
-                countdictstack /dictcnt exch def
-                count /stackcnt exch def
-                ast 1 _nth env EVAL
-            } stopped { %catch
-                % clean up the dictionary stack
-                1 1 countdictstack dictcnt sub { %foreach added dict
-                    %(popping dict\n) print
-                    pop end % pop idx and pop dict
-                    %(new ast: ) print ast true _pr_str print (\n) print
-                } for
-                % clean up the operand stack
-                count 1 exch 1 exch stackcnt sub { %foreach added operand
-                    %(op stack: ) print pstack
-                    pop pop % pop idx and operand
-                    %(popped op stack\n) print pstack
-                } for
-                % get error data and reset $error dict
-                /errdata get_error_data def
-                $error /newerror false put
-                $error /errorinfo null put
+            ast _count 2 gt { %if has catch* block
+                { %try
+                    countdictstack /dictcnt exch def
+                    count /stackcnt exch def
+                    ast 1 _nth env EVAL
+                } stopped { %catch
+                    % clean up the dictionary stack
+                    1 1 countdictstack dictcnt sub { %foreach added dict
+                        %(popping dict\n) print
+                        pop end % pop idx and pop dict
+                        %(new ast: ) print ast true _pr_str print (\n) print
+                    } for
+                    % clean up the operand stack
+                    count 1 exch 1 exch stackcnt sub { %foreach added operand
+                        %(op stack: ) print pstack
+                        pop pop % pop idx and operand
+                        %(popped op stack\n) print pstack
+                    } for
+                    % get error data and reset $error dict
+                    /errdata get_error_data def
+                    $error /newerror false put
+                    $error /errorinfo null put
 
-                ast _count 3 lt { %if no third (catch*) form
-                    errdata throw
+                    ast _count 3 lt { %if no third (catch*) form
+                        errdata throw
+                    } if
+                    ast 2 _nth 0 _nth (catch*) eq not { %if third form not catch*
+                        (No catch* in throw form) _throw
+                    } if
+                    ast 2 _nth 2 _nth
+                    env
+                        ast 2 _nth 1 _nth 1 _list
+                        errdata 1 _list
+                        env_new
+                    EVAL
                 } if
-                ast 2 _nth 0 _nth (catch*) eq not { %if third form not catch*
-                    (No catch* in throw form) _throw
-                } if
-                ast 2 _nth 2 _nth
-                env
-                    ast 2 _nth 1 _nth 1 _list
-                    errdata 1 _list
-                    env_new
-                EVAL
-            } if
+            }{ % else no catch* block
+                ast 1 _nth env EVAL
+            } ifelse
         }{ /if a0 eq { %if if
             /a1 ast 1 _nth def
             /cond a1 env EVAL def
@@ -216,7 +222,7 @@ end } def
             }{ %else (regular procedure/function)
                 (cannot apply native proc!\n) print quit
             } ifelse } ifelse
-        } ifelse } ifelse } ifelse } ifelse } ifelse } ifelse } ifelse } ifelse } ifelse } ifelse
+        } ifelse } ifelse } ifelse } ifelse } ifelse } ifelse } ifelse } ifelse } ifelse } ifelse } ifelse
       } ifelse
     } ifelse
 
@@ -245,9 +251,8 @@ core_ns { _function _ref } forall
 
 % core.mal: defined using the language itself
 (\(def! not \(fn* \(a\) \(if a false true\)\)\)) RE pop
-(\(def! load-file \(fn* \(f\) \(eval \(read-string \(str "\(do " \(slurp f\) "\)"\)\)\)\)\)) RE pop
+(\(def! load-file \(fn* \(f\) \(eval \(read-string \(str "\(do " \(slurp f\) "\nnil\)"\)\)\)\)\)) RE pop
 (\(defmacro! cond \(fn* \(& xs\) \(if \(> \(count xs\) 0\) \(list 'if \(first xs\) \(if \(> \(count xs\) 1\) \(nth xs 1\) \(throw "odd number of forms to cond"\)\) \(cons 'cond \(rest \(rest xs\)\)\)\)\)\)\)) RE pop
-(\(defmacro! or \(fn* \(& xs\) \(if \(empty? xs\) nil \(if \(= 1 \(count xs\)\) \(first xs\) `\(let* \(or_FIXME ~\(first xs\)\) \(if or_FIXME or_FIXME \(or ~@\(rest xs\)\)\)\)\)\)\)\)) RE pop
 
 userdict /ARGUMENTS known { %if command line arguments
     ARGUMENTS length 0 gt { %if more than 0 arguments

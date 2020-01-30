@@ -19,7 +19,7 @@ $(foreach ch,$(word 1,$($(1))),\
   $(if $(ch),\
     $(if $(filter $(_TOKEN_DELIMS),$(ch)),\
       ,\
-      $(if $(filter-out $(NUMBERS),$(ch)),\
+      $(if $(filter-out $(MINUS) $(NUMBERS),$(ch)),\
         $(call _error,Invalid number character '$(ch)'),\
         $(eval $(1) := $(wordlist 2,$(words $($(1))),$($(1))))\
         $(and $(READER_DEBUG),$(info READ_NUMBER ch: $(ch) | $($(1))))\
@@ -27,6 +27,9 @@ $(foreach ch,$(word 1,$($(1))),\
     ))
 endef
 
+# $(_NL) is used here instead of $(NEWLINE) because $(strip) removes
+# $(NEWLINE). str_encode will just pass through $(_NL) so str_decode
+# later will restore a correct newline
 define READ_STRING
 $(foreach ch,$(word 1,$($(1))),\
   $(if $(ch),\
@@ -34,11 +37,19 @@ $(foreach ch,$(word 1,$($(1))),\
       $(eval $(1) := $(wordlist 3,$(words $($(1))),$($(1))))\
       $(and $(READER_DEBUG),$(info READ_STRING ch: \$(word 1,$($(1))) | $($(1))))\
       $(DQUOTE) $(strip $(call READ_STRING,$(1))),\
+    $(if $(and $(filter \,$(ch)),$(filter n,$(word 2,$($(1))))),\
+      $(eval $(1) := $(wordlist 3,$(words $($(1))),$($(1))))\
+      $(and $(READER_DEBUG),$(info READ_STRING ch: \$(word 1,$($(1))) | $($(1))))\
+      $(_NL) $(strip $(call READ_STRING,$(1))),\
+    $(if $(and $(filter \,$(ch)),$(filter \,$(word 2,$($(1))))),\
+      $(eval $(1) := $(wordlist 3,$(words $($(1))),$($(1))))\
+      $(and $(READER_DEBUG),$(info READ_STRING ch: \$(word 1,$($(1))) | $($(1))))\
+      \ $(strip $(call READ_STRING,$(1))),\
     $(if $(filter $(DQUOTE),$(ch)),\
       ,\
       $(eval $(1) := $(wordlist 2,$(words $($(1))),$($(1))))\
       $(and $(READER_DEBUG),$(info READ_STRING ch: $(ch) | $($(1))))\
-      $(ch) $(strip $(call READ_STRING,$(1))))),))
+      $(ch) $(strip $(call READ_STRING,$(1))))))),))
 endef
 
 define READ_SYMBOL
@@ -64,7 +75,10 @@ $(foreach ch,$(word 1,$($(1))),\
 endef
 
 define READ_ATOM
+$(and $(READER_DEBUG),$(info READ_ATOM: $($(1))))
 $(foreach ch,$(word 1,$($(1))),\
+  $(if $(and $(filter $(MINUS),$(ch)),$(filter $(NUMBERS),$(word 2,$($(1))))),\
+    $(call _number,$(call READ_NUMBER,$(1))),\
   $(if $(filter $(NUMBERS),$(ch)),\
     $(call _number,$(call READ_NUMBER,$(1))),\
   $(if $(filter $(DQUOTE),$(ch)),\
@@ -72,7 +86,7 @@ $(foreach ch,$(word 1,$($(1))),\
     $(call __string,$(strip $(call READ_STRING,$(1))))\
     $(eval $(if $(filter $(DQUOTE),$(word 1,$($(1)))),\
            $(eval $(1) := $(wordlist 2,$(words $($(1))),$($(1)))),\
-           $(call _error,Expected '$(DQUOTE)' in; $($(1))))),\
+           $(call _error,Expected '$(DQUOTE)' in; $($(1))$(COMMA) got EOF))),\
   $(if $(filter $(COLON),$(ch)),\
     $(eval $(1) := $(wordlist 2,$(words $($(1))),$($(1))))\
     $(call _keyword,$(call READ_KEYWORD,$(1))),\
@@ -83,7 +97,7 @@ $(foreach ch,$(word 1,$($(1))),\
       $(__true),\
     $(if $(call _EQ,false,$(sym)),\
       $(__false),\
-      $(call _symbol,$(sym))))))))))
+      $(call _symbol,$(sym)))))))))))
 endef
 
 # read and return tokens until $(2) found
@@ -95,7 +109,7 @@ $(foreach ch,$(word 1,$($(1))),\
       ,\
       $(call READ_FORM,$(1))\
       $(call READ_UNTIL,$(1),$(2),$(3))),\
-    $(call _error,Expected '$(3)')))
+    $(call _error,Expected '$(3)'$(COMMA) got EOF)))
 endef
 
 define DROP_UNTIL
@@ -146,33 +160,36 @@ $(foreach ch,$(word 1,$($(1))),\
     $(call _error,Unexpected '$(RCURLY)'),\
   $(if $(filter $(_LC),$(ch)),\
     $(eval $(1) := $(wordlist 2,$(words $($(1))),$($(1))))\
+    $(call READ_SPACES,$(1))\
     $(foreach thm,$(call _hash_map),\
       $(call do,$(call _assoc_seq!,$(thm),$(strip $(call READ_UNTIL,$(1),$(_RC),$(RCURLY)))))\
       $(eval $(if $(filter $(_RC),$(word 1,$($(1)))),\
                $(eval $(1) := $(wordlist 2,$(words $($(1))),$($(1)))),\
-               $(call _error,Expected '$(RCURLY)')))\
+               $(call _error,Expected '$(RCURLY)'$(COMMA) got EOF)))\
       $(thm)),\
   $(if $(filter $(_RP),$(ch)),\
     $(call _error,Unexpected '$(RPAREN)'),\
   $(if $(filter $(_LP),$(ch)),\
     $(eval $(1) := $(wordlist 2,$(words $($(1))),$($(1))))\
+    $(call READ_SPACES,$(1))\
     $(foreach tlist,$(call _list),\
       $(eval $(foreach item,$(strip $(call READ_UNTIL,$(1),$(_RP),$(RPAREN))),\
                $(call do,$(call _conj!,$(tlist),$(item)))))\
       $(eval $(if $(filter $(_RP),$(word 1,$($(1)))),\
                $(eval $(1) := $(wordlist 2,$(words $($(1))),$($(1)))),\
-               $(call _error,Expected '$(RPAREN)')))\
+               $(call _error,Expected '$(RPAREN)'$(COMMA) got EOF)))\
       $(tlist)),\
   $(if $(filter $(RBRACKET),$(ch)),\
     $(call _error,Unexpected '$(RBRACKET)'),\
   $(if $(filter $(LBRACKET),$(ch)),\
     $(eval $(1) := $(wordlist 2,$(words $($(1))),$($(1))))\
+    $(call READ_SPACES,$(1))\
     $(foreach tvec,$(call _vector),\
       $(eval $(foreach item,$(strip $(call READ_UNTIL,$(1),$(RBRACKET),$(RBRACKET))),\
                $(call do,$(call _conj!,$(tvec),$(item)))))\
       $(eval $(if $(filter $(RBRACKET),$(word 1,$($(1)))),\
                $(eval $(1) := $(wordlist 2,$(words $($(1))),$($(1)))),\
-               $(call _error,Expected '$(RBRACKET)')))\
+               $(call _error,Expected '$(RBRACKET)'$(COMMA) got EOF)))\
       $(tvec)),\
   $(call READ_ATOM,$(1))))))))))))))))
 $(call READ_SPACES,$(1))

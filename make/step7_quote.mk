@@ -104,7 +104,9 @@ define EVAL
 $(strip $(if $(__ERROR),,\
   $(and $(EVAL_DEBUG),$(info EVAL: $(call _pr_str,$(1))))\
   $(if $(call _list?,$(1)),\
-    $(word 1,$(strip $(call EVAL_INVOKE,$(1),$(2)) $(__nil))),\
+    $(if $(call _EQ,0,$(call _count,$(1))),\
+      $(1),\
+      $(word 1,$(strip $(call EVAL_INVOKE,$(1),$(2)) $(__nil)))),\
     $(call EVAL_AST,$(1),$(2)))))
 endef
 
@@ -129,7 +131,7 @@ REPL_ENV := $(call ENV_SET,$(REPL_ENV),*ARGV*,$(_argv))
 
 # core.mal: defined in terms of the language itself
 $(call do,$(call REP, (def! not (fn* (a) (if a false true))) ))
-$(call do,$(call REP, (def! load-file (fn* (f) (eval (read-string (str "(do " (slurp f) ")"))))) ))
+$(call do,$(call REP, (def! load-file (fn* (f) (eval (read-string (str "(do " (slurp f) "\nnil)"))))) ))
 
 # Load and eval any files specified on the command line
 $(if $(MAKECMDGOALS),\

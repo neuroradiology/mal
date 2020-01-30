@@ -40,6 +40,9 @@ function _EVAL(ast, env) {
     if (!types._list_Q(ast)) {
         return eval_ast(ast, env);
     }
+    if (ast.length === 0) {
+        return ast;
+    }
 
     // apply list
     var a0 = ast[0], a1 = ast[1], a2 = ast[2], a3 = ast[3];
@@ -111,9 +114,9 @@ if (typeof require !== 'undefined' && require.main === module) {
         try {
             if (line) { printer.println(rep(line)); }
         } catch (exc) {
-            if (exc instanceof reader.BlankException) { continue; }
-            if (exc.stack) { printer.println(exc.stack); }
-            else           { printer.println(exc); }
+            if (exc instanceof reader.BlankException) { continue }
+            if (exc instanceof Error) { console.warn(exc.stack) }
+            else { console.warn("Error: " + printer._pr_str(exc, true)) }
         }
     }
 }

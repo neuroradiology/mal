@@ -18,7 +18,8 @@ let gsub re f str =
     "" (List.map (function | Str.Delim x -> f x | Str.Text x -> x)
                  (Str.full_split re str))
 
-let token_re = (Str.regexp "~@\\|[][{}()'`~^@]\\|\"\\(\\\\.\\|[^\"]\\)*\"\\|;.*\\|[^][  \n{}('\"`,;)]*")
+let token_re = (Str.regexp "~@\\|[][{}()'`~^@]\\|\"\\(\\\\.\\|[^\"]\\)*\"?\\|;.*\\|[^][  \n{}('\"`,;)]*")
+let string_re = (Str.regexp "\"\\(\\\\.\\|[^\\\\\"]\\)*\"")
 
 type reader = {
   form : Types.mal_type;
@@ -30,6 +31,18 @@ type list_reader = {
   tokens : string list;
 }
 
+let unescape_string token =
+  if Str.string_match string_re token 0
+  then
+    let without_quotes = String.sub token 1 ((String.length token) - 2) in
+    gsub (Str.regexp "\\\\.")
+         (function | "\\n" -> "\n" | x -> String.sub x 1 1)
+         without_quotes
+  else
+    (output_string stderr ("expected '\"', got EOF\n");
+     flush stderr;
+     raise End_of_file)
+
 let read_atom token =
   match token with
     | "nil" -> T.Nil
@@ -38,11 +51,12 @@ let read_atom token =
     | _ ->
     match token.[0] with
       | '0'..'9' -> T.Int (int_of_string token)
-      | '"' -> T.String (gsub (Str.regexp "\\\\.")
-                              (function
-                                | "\\n" -> "\n"
-                                | x -> String.sub x 1 1)
-                              (String.sub token 1 ((String.length token) - 2)))
+      | '-' -> (match String.length token with
+                  | 1 -> Types.symbol token
+                  | _ -> (match token.[1] with
+                            | '0'..'9' -> T.Int (int_of_string token)
+                            | _ -> Types.symbol token))
+      | '"' -> T.String (unescape_string token)
       | ':' -> T.Keyword (Str.replace_first (Str.regexp "^:") "" token)
       | _ -> Types.symbol token
 

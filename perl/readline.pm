@@ -5,9 +5,9 @@
 package readline;
 use strict;
 use warnings;
+
 use Exporter 'import';
 our @EXPORT_OK = qw( mal_readline set_rl_mode );
-
 use Term::ReadLine;
 
 my $_rl = Term::ReadLine->new('Mal');
@@ -54,6 +54,7 @@ sub mal_readline {
     if ($rl_mode eq "terminal") {
         if (defined ($line = $_rl->readline($prompt))) {
             save_line($line);
+            chomp $line;
             return $line;
         } else {
             return undef;
@@ -62,6 +63,7 @@ sub mal_readline {
         print "$prompt";
         if (defined ($line = readline(*STDIN))) {
             save_line($line);
+            chomp($line);
             return $line;
         } else {
             return undef;
